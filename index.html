@@ -4024,7 +4024,7 @@ window.QUESTION_BANK = {
     }
   };
   let store = DB.load();
-  function persist(){ DB.save(store); }
+  function persist(){ DB.save(store); if(typeof cloudSync==='function') cloudSync(); }
 
   /* =========================================================
      CLOUD AUTH (Supabase) — real email/password + emailed reset
@@ -4057,8 +4057,62 @@ window.QUESTION_BANK = {
     async updatePassword(newPassword){
       const { data, error } = await SB.auth.updateUser({ password:newPassword });
       return { data, error };
+    },
+    // ---- cloud save: load/save the player's game profile row ----
+    async loadProfile(userId){
+      try{
+        const { data, error } = await SB.from('profiles').select('data,updated_at').eq('id', userId).maybeSingle();
+        if(error){ console.warn('loadProfile error', error); return null; }
+        return data || null; // { data:{...}, updated_at } or null if no row yet
+      }catch(e){ console.warn('loadProfile threw', e); return null; }
+    },
+    async saveProfile(userId, profileObj){
+      try{
+        const { error } = await SB.from('profiles').upsert({ id:userId, data:profileObj }, { onConflict:'id' });
+        if(error){ console.warn('saveProfile error', error); return false; }
+        return true;
+      }catch(e){ console.warn('saveProfile threw', e); return false; }
     }
   };
+
+  /* ---- cloud sync glue ----
+     We store the whole player profile object in the cloud row's "data".
+     On login we pull it; locally we keep using the same player object the
+     game already reads from. On change we debounce-push to the cloud. */
+  let cloudSaveTimer=null, cloudSavePending=false;
+  function cloudSync(){
+    if(!CLOUD_ON) return;
+    const p=currentPlayer(); if(!p||!p.cloudId) return;
+    cloudSavePending=true;
+    if(cloudSaveTimer) clearTimeout(cloudSaveTimer);
+    cloudSaveTimer=setTimeout(async ()=>{
+      const cur=currentPlayer(); if(!cur||!cur.cloudId){ cloudSavePending=false; return; }
+      const ok=await Cloud.saveProfile(cur.cloudId, stripForCloud(cur));
+      cloudSavePending=false;
+      updateSyncBadge(ok?'saved':'error');
+    }, 1200);
+    updateSyncBadge('saving');
+  }
+  // what we store in the cloud (everything except transient/auth-local bits)
+  function stripForCloud(p){
+    const { pinHash, ...rest } = p; // PIN isn't used in cloud mode
+    return rest;
+  }
+  // merge a cloud profile into the local player (cloud is source of truth on login)
+  function applyCloudProfile(localP, cloudData){
+    if(!cloudData) return localP;
+    // keep identity fields from the live session, take progress from the cloud
+    const keepId=localP.id, keepCloud=localP.cloudId, keepEmail=localP.email;
+    Object.assign(localP, cloudData);
+    localP.id=keepId; localP.cloudId=keepCloud; if(keepEmail)localP.email=keepEmail;
+    return ensureFields(localP);
+  }
+  function updateSyncBadge(state){
+    const el=document.getElementById('syncBadge'); if(!el) return;
+    const map={saving:'☁️ Saving…', saved:'☁️ Saved', error:'⚠️ Save failed (will retry)'};
+    el.textContent=map[state]||'';
+    el.className='syncbadge '+(state||'');
+  }
 
   // map a Supabase user -> a local game profile (create on first login)
   function profileForCloudUser(user){
@@ -4073,6 +4127,27 @@ window.QUESTION_BANK = {
       persist();
     }
     return ensureFields(p);
+  }
+
+  // Load the cloud profile, merge it into the local player, then enter the app.
+  // First-ever login (no cloud row yet) seeds the cloud from the local profile.
+  async function enterCloudUser(user, note){
+    const p=profileForCloudUser(user);
+    let synced=false;
+    try{
+      const row=await Cloud.loadProfile(user.id);
+      if(row && row.data && Object.keys(row.data).length){
+        applyCloudProfile(p, row.data);  // cloud wins on login
+        synced=true;
+      } else {
+        // no cloud row yet -> push this profile up as the starting point
+        await Cloud.saveProfile(user.id, stripForCloud(p));
+        synced=true;
+      }
+    }catch(e){ console.warn('cloud profile sync failed, using local', e); }
+    persist();
+    enterPlayer(p, note);
+    updateSyncBadge(synced?'saved':'error');
   }
 
   // tiny non-cryptographic hash so PINs aren't stored as plain text
@@ -4713,6 +4788,14 @@ window.QUESTION_BANK = {
     #iac-root .badge .bn{font-family:Georgia,serif;font-weight:700;font-size:13px;margin-top:6px;}
     #iac-root .badge .bd{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.25;}
     #iac-root .acctbtns{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;}
+    #iac-root .cloudrow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 4px;padding:9px 13px;border:1px solid var(--line);background:var(--paper-2);border-radius:11px;font-size:13px;}
+    #iac-root .cloudemail{font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    #iac-root .syncbadge{font-size:12px;font-weight:700;color:var(--muted);flex:0 0 auto;}
+    #iac-root .syncbadge.saving{color:var(--gold-dk);}
+    #iac-root .syncbadge.saved{color:var(--green-dk);}
+    #iac-root .syncbadge.error{color:var(--buzz-dk);}
+    #iac-root .btn.danger{color:var(--buzz-dk);border-color:color-mix(in srgb,var(--buzz) 45%, var(--line));}
+    #iac-root .btn.danger:hover{background:color-mix(in srgb,var(--buzz) 12%, transparent);}
 
     /* coins */
     #iac-root .coinrow{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;}
@@ -4995,8 +5078,7 @@ window.QUESTION_BANK = {
     const user = data && data.user;
     if(!user){ authErr='Could not log in'; render(); return; }
     sfx('correct');
-    const p=profileForCloudUser(user);
-    enterPlayer(p);
+    await enterCloudUser(user);
   }
 
   function renderCloudSignup(){
@@ -5044,7 +5126,7 @@ window.QUESTION_BANK = {
     // With "Confirm email" OFF, a session is returned and we can log straight in.
     const user = data && data.user;
     if(data && data.session && user){
-      sfx('correct'); const p=profileForCloudUser(user); enterPlayer(p); return;
+      sfx('correct'); await enterCloudUser(user); return;
     }
     // If confirm-email is ON, there's no session yet.
     authMsg='Account created! Check your email to confirm, then log in.';
@@ -5118,7 +5200,7 @@ window.QUESTION_BANK = {
     // clean the recovery hash from the URL, then enter
     try{ history.replaceState(null,'',location.pathname+location.search); }catch(e){}
     const user=await Cloud.getUser();
-    if(user){ const p=profileForCloudUser(user); setTimeout(()=>enterPlayer(p), 600); }
+    if(user){ setTimeout(()=>enterCloudUser(user), 600); }
     else { setTimeout(()=>{ view='login'; render(); }, 800); }
   }
 
@@ -5327,6 +5409,7 @@ window.QUESTION_BANK = {
     const n=Object.keys(p.badges).length;
     app.innerHTML=`<div class="wrap">
       <div class="eyebrow">Account</div>
+      ${CLOUD_ON?`<div class="cloudrow"><span class="cloudemail">☁️ ${p.email||'Signed in'}</span><span class="syncbadge saved" id="syncBadge">☁️ Saved</span></div>`:''}
       ${hudHtml(p)}
       <div class="acctgrid">
         <div class="acel"><div class="n">${p.xp}</div><div class="k">Total XP</div></div>
@@ -5348,15 +5431,40 @@ window.QUESTION_BANK = {
       <div class="row"><div class="ttl">Security</div></div>
       <div class="err" style="min-height:0;${acctMsg?'':'display:none;'}">${acctMsg}</div>
       <div class="acctbtns">
-        <button class="btn ghost sm" id="changePin">Change my PIN</button>
+        ${CLOUD_ON?'':`<button class="btn ghost sm" id="changePin">Change my PIN</button>`}
         <button class="btn ghost sm" id="logout">Log out</button>
+        <button class="btn ghost sm danger" id="delAcct">Delete my account</button>
       </div>
-      <div class="muted-note">Remember: there's no reset. If you change your PIN, don't forget the new one — it's the only way back in.</div>
+      <div class="muted-note">${CLOUD_ON
+        ? 'Your login is stored securely in the cloud and works on any device. Forgot your password? Use the reset link on the login screen.'
+        : "Remember: there's no reset. If you change your PIN, don't forget the new one — it's the only way back in."}</div>
     </div>${tabBar()}`;
     app.querySelector('#muteToggle').onclick=()=>{ toggleMute(); renderAccount(); };
     app.querySelector('#logout').onclick=async ()=>{ if(CLOUD_ON){ await Cloud.signOut(); } store.lastActive=null; persist(); view='welcome'; render(); };
-    app.querySelector('#changePin').onclick=()=>changePinFlow();
+    const cp=app.querySelector('#changePin'); if(cp)cp.onclick=()=>changePinFlow();
+    app.querySelector('#delAcct').onclick=()=>deleteAccountFlow();
     wireTabs();
+  }
+  function deleteAccountFlow(){
+    const p=currentPlayer(); if(!p)return;
+    const label=p.name||'this account';
+    const warn=CLOUD_ON
+      ? `Delete "${label}"?\n\nThis erases all progress (XP, coins, mastery, badges) on this device and signs you out.\n\nNote: to fully remove your login email from the cloud, also delete it in your Supabase dashboard under Authentication > Users.\n\nType DELETE to confirm.`
+      : `Delete "${label}"?\n\nThis permanently erases the account and all its progress on this device. This cannot be undone.\n\nType DELETE to confirm.`;
+    const ans=prompt(warn);
+    if(ans===null)return;
+    if(ans.trim().toUpperCase()!=='DELETE'){ acctMsg='Account not deleted (you must type DELETE).'; renderAccount(); return; }
+    doDeleteAccount(p);
+  }
+  async function doDeleteAccount(p){
+    // remove this player's profile from local store
+    store.players = store.players.filter(x=>x.id!==p.id);
+    store.lastActive=null;
+    persist();
+    if(CLOUD_ON){ try{ await Cloud.signOut(); }catch(e){} }
+    sfx('wrong');
+    view='welcome'; render();
+    toast('Account deleted');
   }
   function changePinFlow(){
     const cur=prompt('Enter your CURRENT PIN to confirm it\u2019s you:');
@@ -6149,7 +6257,7 @@ window.QUESTION_BANK = {
       try{
         const user = await Cloud.getUser();
         if(isRecovery){ view='resetpw'; render(); return; }
-        if(user){ const p=profileForCloudUser(user); enterPlayer(p); return; }
+        if(user){ await enterCloudUser(user); return; }
       }catch(e){}
       view='welcome'; render(); return;
     }
