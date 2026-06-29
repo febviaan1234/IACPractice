@@ -5097,7 +5097,7 @@ window.QUESTION_BANK = {
           <input id="aEmail" type="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="you@example.com" value="${(authEmail||'').replace(/"/g,'&quot;')}" />
         </div>
         <div class="authfield">
-          <label>Password <span style="color:${pwOk?'var(--green)':'var(--muted)'};font-weight:600;">(at least 8 characters)</span></label>
+          <label>Password <span id="pwHint" style="color:${pwOk?'var(--green)':'var(--muted)'};font-weight:600;">(at least 8 characters)</span></label>
           <input id="aPass" type="password" autocomplete="new-password" placeholder="Make it strong" value="${(authPass||'').replace(/"/g,'&quot;')}" />
         </div>
         <div class="err">${authErr}</div>
@@ -5109,7 +5109,13 @@ window.QUESTION_BANK = {
     const eN=app.querySelector('#aName'), eE=app.querySelector('#aEmail'), eP=app.querySelector('#aPass');
     eN.oninput=e=>{authName=e.target.value;authErr='';};
     eE.oninput=e=>{authEmail=e.target.value;authErr='';};
-    eP.oninput=e=>{authPass=e.target.value;authErr='';renderCloudSignup();setTimeout(()=>{const x=app.querySelector('#aPass');if(x){x.focus();x.setSelectionRange(x.value.length,x.value.length);}},0);};
+    // No re-render while typing (that caused the flicker). Just recolor the hint live.
+    eP.oninput=e=>{
+      authPass=e.target.value; authErr='';
+      const hint=app.querySelector('#pwHint');
+      if(hint) hint.style.color = strongPassword(authPass) ? 'var(--green)' : 'var(--muted)';
+    };
+    eP.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); doCloudSignup(); } };
     app.querySelector('#aGo').onclick=doCloudSignup;
   }
   async function doCloudSignup(){
@@ -5176,7 +5182,7 @@ window.QUESTION_BANK = {
         <div class="pn" style="margin-bottom:6px;">Set a new password</div>
         <p class="sub" style="margin-bottom:14px;">Pick a new password for your account.</p>
         <div class="authfield">
-          <label>New password <span style="color:${pwOk?'var(--green)':'var(--muted)'};font-weight:600;">(at least 8 characters)</span></label>
+          <label>New password <span id="pwHint2" style="color:${pwOk?'var(--green)':'var(--muted)'};font-weight:600;">(at least 8 characters)</span></label>
           <input id="aPass" type="password" autocomplete="new-password" placeholder="New password" value="${(authPass||'').replace(/"/g,'&quot;')}" />
         </div>
         <div class="err">${authErr}</div>
@@ -5185,7 +5191,7 @@ window.QUESTION_BANK = {
       </div>
     </div>`;
     const eP=app.querySelector('#aPass');
-    eP.oninput=e=>{authPass=e.target.value;authErr='';};
+    eP.oninput=e=>{ authPass=e.target.value; authErr=''; const hint=app.querySelector('#pwHint2'); if(hint) hint.style.color=strongPassword(authPass)?'var(--green)':'var(--muted)'; };
     eP.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); doResetPw(); } };
     app.querySelector('#aGo').onclick=doResetPw;
   }
