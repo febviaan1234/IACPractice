@@ -4993,6 +4993,7 @@ window.QUESTION_BANK = {
     if(view==='newplayer')return CLOUD_ON?renderCloudSignup():renderNewPlayer();
     if(view==='forgot')return renderForgot();
     if(view==='resetpw')return renderResetPw();
+    if(view==='checkmail')return renderCheckMail();
     if(view==='tab'){
       if(subView==='quiz')return renderQuiz();
       if(subView==='summary')return renderSummary();
@@ -5053,6 +5054,7 @@ window.QUESTION_BANK = {
           <input id="aPass" type="password" autocomplete="current-password" placeholder="Your password" value="${(authPass||'').replace(/"/g,'&quot;')}" />
         </div>
         <div class="err">${authErr}</div>
+        ${authMsg?`<div class="okmsg">${authMsg}</div>`:''}
         <div class="actions" style="padding-top:4px;"><button class="btn buzz" id="aGo" ${authBusy?'disabled':''}>${authBusy?'Logging in…':'Log in'}</button></div>
         <button class="back" id="aForgot" style="margin-top:10px;">Forgot password?</button>
         <div class="muted-note" style="text-align:center;margin-top:6px;">Your account works on any device — just log in with the same email and password.</div>
@@ -5134,9 +5136,30 @@ window.QUESTION_BANK = {
     if(data && data.session && user){
       sfx('correct'); await enterCloudUser(user); return;
     }
-    // If confirm-email is ON, there's no session yet.
-    authMsg='Account created! Check your email to confirm, then log in.';
-    view='login'; authErr=''; render(); toast('Check your email to confirm');
+    // If confirm-email is ON, there's no session yet. Show a clear "check your email" screen.
+    authMsg='';
+    view='checkmail'; authErr=''; render();
+  }
+
+  function renderCheckMail(){
+    app.innerHTML=`<div class="wrap">
+      <div class="login card-base" style="margin-top:60px;">
+        <div class="mascot" style="font-size:50px;">📬</div>
+        <div class="pn" style="margin-bottom:6px;font-size:22px;">Check your email!</div>
+        <p class="sub" style="margin:10px auto 18px;max-width:320px;line-height:1.5;">We sent a confirmation link to <strong>${(authEmail||'').replace(/</g,'&lt;')}</strong>. Open the email and tap the link to activate your account.</p>
+        <div class="okmsg" style="text-align:left;font-size:13px;line-height:1.5;">
+          <strong>Tips:</strong><br>
+          Check your spam/junk folder if you don't see it.<br>
+          The link expires after 24 hours.
+        </div>
+        <div class="actions" style="padding-top:14px;">
+          <button class="btn buzz" id="goLogin">I confirmed it — take me to log in</button>
+        </div>
+        <button class="back" id="goBack" style="margin-top:10px;">Back to sign up</button>
+      </div>
+    </div>`;
+    app.querySelector('#goLogin').onclick=()=>{ authErr=''; authMsg=''; view='login'; render(); };
+    app.querySelector('#goBack').onclick=()=>{ authErr=''; view='newplayer'; render(); };
   }
 
   function renderForgot(){
