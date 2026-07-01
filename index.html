@@ -5496,6 +5496,23 @@ window.QUESTION_BANK = {
     view='tab'; activeTab='play'; subView=null; applyTheme(); render();
     if(note)toast(note);
     got.forEach(g=>toast(g.name,true,g.icon));
+    syncOneSignalTags(p);
+  }
+
+  // Push player data to OneSignal so notifications can be personalized
+  function syncOneSignalTags(p){
+    try{
+      if(window.OneSignalDeferred){
+        OneSignalDeferred.push(function(OneSignal){
+          OneSignal.User.addTags({
+            streak_days: String(p.streakDays||0),
+            player_name: p.name||'',
+            xp: String(p.xp||0),
+            daily_goal: String(p.dailyGoal||10),
+          });
+        });
+      }
+    }catch(e){}
   }
 
   /* ---------- NEW PLAYER ---------- */
@@ -6555,12 +6572,42 @@ if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
 
-// OneSignal push notifications (replace 04e1da51-3f5a-4bca-af0b-211e844801bf with your real app ID)
+// OneSignal push notifications
 window.OneSignalDeferred = window.OneSignalDeferred || [];
 OneSignalDeferred.push(function(OneSignal) {
   OneSignal.init({
     appId: "04e1da51-3f5a-4bca-af0b-211e844801bf",
     notifyButton: { enable: false },
+  });
+
+  // After user subscribes, show a tip about system notifications
+  OneSignal.Notifications.addEventListener('permissionChange', function(granted) {
+    if(!granted) return;
+    try{ if(localStorage.getItem('iac_notif_tip_shown')) return; }catch(e){}
+    setTimeout(function(){
+      var tip = document.createElement('div');
+      tip.id = 'notifTip';
+      tip.innerHTML = '<div class="notif-tip-card">' +
+        '<div class="notif-tip-header"><span style="font-size:28px;flex-shrink:0;">🔔</span><div>' +
+        '<div class="notif-tip-title">One more step!</div>' +
+        '<div class="notif-tip-sub">To make sure notifications reach you, check that your device allows them for this browser:</div>' +
+        '</div></div>' +
+        '<div class="notif-tip-steps">' +
+        '<div class="notif-tip-step"><b>Mac:</b> System Settings > Notifications > Chrome/Safari > Allow</div>' +
+        '<div class="notif-tip-step"><b>Windows:</b> Settings > Notifications > Chrome > On</div>' +
+        '<div class="notif-tip-step"><b>Android:</b> Settings > Apps > Chrome > Notifications > On</div>' +
+        '<div class="notif-tip-step"><b>iPhone:</b> Settings > IAC Practice > Notifications > Allow</div>' +
+        '</div>' +
+        '<div class="notif-tip-btns"><button class="notif-tip-btn" id="notifTipOk">Got it!</button></div>' +
+        '</div>';
+      document.body.appendChild(tip);
+      requestAnimationFrame(function(){ requestAnimationFrame(function(){ tip.classList.add('show'); }); });
+      document.getElementById('notifTipOk').onclick = function(){
+        tip.classList.remove('show');
+        setTimeout(function(){ tip.remove(); }, 400);
+        try{ localStorage.setItem('iac_notif_tip_shown', '1'); }catch(e){}
+      };
+    }, 1500);
   });
 });
 
@@ -6700,6 +6747,23 @@ OneSignalDeferred.push(function(OneSignal) {
 #installBanner .install-btn.primary{background:#d6451f;color:#fff;}
 #installBanner .install-btn.dismiss{background:rgba(0,0,0,.06);color:#6f6553;}
 @media(prefers-color-scheme:dark){#installBanner .install-btn.dismiss{background:rgba(255,255,255,.1);color:#a8a090;}}
+
+#notifTip{position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;transition:opacity .35s;pointer-events:none;}
+#notifTip.show{opacity:1;pointer-events:auto;}
+#notifTip .notif-tip-card{max-width:400px;width:100%;background:#fff;border-radius:18px;padding:22px 20px;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;transform:scale(.92);transition:transform .35s;}
+#notifTip.show .notif-tip-card{transform:scale(1);}
+@media(prefers-color-scheme:dark){#notifTip .notif-tip-card{background:#2a2a28;color:#f0ead8;}}
+#notifTip .notif-tip-header{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px;}
+#notifTip .notif-tip-title{font-size:18px;font-weight:700;margin-bottom:4px;}
+#notifTip .notif-tip-sub{font-size:14px;color:#6f6553;line-height:1.45;}
+@media(prefers-color-scheme:dark){#notifTip .notif-tip-sub{color:#a8a090;}}
+#notifTip .notif-tip-steps{margin-bottom:16px;}
+#notifTip .notif-tip-step{padding:8px 0;font-size:13px;line-height:1.45;border-bottom:0.5px solid rgba(0,0,0,.08);}
+#notifTip .notif-tip-step:last-child{border-bottom:none;}
+@media(prefers-color-scheme:dark){#notifTip .notif-tip-step{border-bottom-color:rgba(255,255,255,.08);}}
+#notifTip .notif-tip-btns{display:flex;}
+#notifTip .notif-tip-btn{flex:1;border:none;border-radius:12px;padding:13px 16px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;background:#d6451f;color:#fff;transition:transform .1s;}
+#notifTip .notif-tip-btn:active{transform:scale(.97);}
 </style>
 </body>
 </html>
