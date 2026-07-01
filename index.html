@@ -6569,6 +6569,10 @@ if('serviceWorker' in navigator){
   const isAndroid = /Android/.test(ua);
   const isChrome = /Chrome/.test(ua) && !/Edge|Edg|OPR|SamsungBrowser/.test(ua);
   const isSamsung = /SamsungBrowser/.test(ua);
+  const isMobile = isIOS || isAndroid || /Mobile|Tablet/.test(ua);
+
+  // Only show on mobile/tablet — desktop users don't need an install prompt
+  if(!isMobile) return;
 
   // On Android Chrome/Samsung, capture the native install prompt
   let deferredPrompt = null;
@@ -6588,33 +6592,33 @@ if('serviceWorker' in navigator){
 
     if(isSafari){
       stepsHtml = `
-        <div class="install-step"><span class="install-num">1</span> Tap the <b>Share</b> button <span class="install-icon">&#x1F4E4;</span> at the bottom of Safari</div>
-        <div class="install-step"><span class="install-num">2</span> Scroll down and tap <b>"Add to Home Screen"</b></div>
-        <div class="install-step"><span class="install-num">3</span> Tap <b>Add</b> in the top right</div>
+        <div class="install-step"><span class="install-num">1</span><span>Tap the <b>Share</b> button (square with arrow) at the bottom of Safari</span></div>
+        <div class="install-step"><span class="install-num">2</span><span>Scroll down and tap <b>"Add to Home Screen"</b></span></div>
+        <div class="install-step"><span class="install-num">3</span><span>Tap <b>Add</b> in the top right</span></div>
       `;
     } else if(isIOS){
       stepsHtml = `
-        <div class="install-step"><span class="install-num">1</span> Open this page in <b>Safari</b> (not this browser)</div>
-        <div class="install-step"><span class="install-num">2</span> Tap the <b>Share</b> button <span class="install-icon">&#x1F4E4;</span></div>
-        <div class="install-step"><span class="install-num">3</span> Tap <b>"Add to Home Screen"</b></div>
+        <div class="install-step"><span class="install-num">1</span><span>Open this page in <b>Safari</b> (not this browser)</span></div>
+        <div class="install-step"><span class="install-num">2</span><span>Tap the <b>Share</b> button (square with arrow)</span></div>
+        <div class="install-step"><span class="install-num">3</span><span>Tap <b>"Add to Home Screen"</b></span></div>
       `;
     } else if(isAndroid && (isChrome || isSamsung)){
       canNativeInstall = !!deferredPrompt;
       if(canNativeInstall){
         stepsHtml = `
-          <div class="install-step">Tap the <b>Install</b> button below to add IAC Practice to your home screen.</div>
+          <div class="install-step"><span>Tap the <b>Install</b> button below to add IAC Practice to your home screen.</span></div>
         `;
       } else {
         stepsHtml = `
-          <div class="install-step"><span class="install-num">1</span> Tap the <b>three-dot menu</b> (&#x22EE;) in the top right</div>
-          <div class="install-step"><span class="install-num">2</span> Tap <b>"Add to Home screen"</b> or <b>"Install app"</b></div>
-          <div class="install-step"><span class="install-num">3</span> Tap <b>Install</b> or <b>Add</b></div>
+          <div class="install-step"><span class="install-num">1</span><span>Tap the <b>three-dot menu</b> in the top right corner</span></div>
+          <div class="install-step"><span class="install-num">2</span><span>Tap <b>"Install app"</b> or <b>"Add to Home screen"</b></span></div>
+          <div class="install-step"><span class="install-num">3</span><span>Tap <b>Install</b></span></div>
         `;
       }
     } else {
-      // Generic / desktop
+      // Other mobile browsers
       stepsHtml = `
-        <div class="install-step">Look for an <b>install icon</b> in your browser's address bar, or use your browser's menu to <b>"Install app"</b> or <b>"Add to Home Screen."</b></div>
+        <div class="install-step"><span>Open your browser menu and look for <b>"Install app"</b> or <b>"Add to Home Screen"</b> to install.</span></div>
       `;
     }
 
