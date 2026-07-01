@@ -4192,6 +4192,9 @@ window.QUESTION_BANK = {
     { id:'master_tab',    icon:'👑', name:'Tab Conqueror',  desc:'Master a whole subject tab' },
     { id:'streak_day3',   icon:'📅', name:'Habit Forming',  desc:'Study 3 days in a row' },
     { id:'streak_day7',   icon:'💎', name:'Week Warrior',   desc:'Study 7 days in a row' },
+    { id:'streak_day14',  icon:'🌟', name:'Two Week Titan', desc:'Study 14 days in a row' },
+    { id:'streak_day30',  icon:'👑', name:'Monthly Legend',  desc:'Study 30 days in a row' },
+    { id:'goal_first',    icon:'🎯', name:'Goal Getter',    desc:'Hit your daily goal for the first time' },
     { id:'comeback',      icon:'💪', name:'Comeback Kid',   desc:'Clear a full Mistakes drill' },
     { id:'first_win',     icon:'🥇', name:'Buzzer Victor',  desc:'Win your first buzzer race' },
     { id:'beat3',         icon:'🤖', name:'Bot Crusher',    desc:'Beat 3 bots in one race' },
@@ -4258,6 +4261,7 @@ window.QUESTION_BANK = {
       { id:'th_lab',     name:'Lab Grid',      cost:340, swatch:'#161b22', accent:'#5fe07a', wallpaper:'grid' },
     ],
     powerups: [
+      { id:'streakfreeze', icon:'🧊', name:'Streak Freeze', cost:100, desc:'Protects your streak if you miss 1 day', isUtility:true },
       { id:'time',    icon:'⏱️', name:'Extra Time',  cost:40,  desc:'+4s to answer after you buzz' },
       { id:'fifty',   icon:'➗', name:'Bonus Clue',   cost:50,  desc:'Reveal one more clue free' },
       { id:'freeze',  icon:'🧊', name:'Freeze Bots',  cost:70,  desc:"Bots can't buzz for 3s" },
@@ -4364,7 +4368,8 @@ window.QUESTION_BANK = {
       pinHash: hash(pin), xp:0, tick:0,
       totalAnswered:0, totalCorrect:0, earlyHits:0, bestStreakEver:0,
       streakDays:0, lastStudied:null, badges:{}, mastery:{},
-      coins:0, owned:{}, powerups:{ time:0, fifty:0, freeze:0, shield:0, double:0, hint:0, steal:0, slowmo:0 }, bestRace:0, racesWon:0, friends:[] };
+      coins:0, owned:{}, powerups:{ time:0, fifty:0, freeze:0, shield:0, double:0, hint:0, steal:0, slowmo:0 }, bestRace:0, racesWon:0, friends:[],
+      streakFreezes:1, dailyGoal:10, dailyDone:0, dailyDate:null };
   }
   // backfill fields for players created before this version
   function ensureFields(p){
@@ -4372,6 +4377,10 @@ window.QUESTION_BANK = {
     ['time','fifty','freeze','shield','double','hint','steal','slowmo'].forEach(k=>{ if(p.powerups[k]==null)p.powerups[k]=0; });
     if(p.bestRace==null)p.bestRace=0; if(p.racesWon==null)p.racesWon=0;
     if(!Array.isArray(p.friends))p.friends=[];
+    if(p.streakFreezes==null)p.streakFreezes=1;
+    if(p.dailyGoal==null)p.dailyGoal=10;
+    if(p.dailyDone==null)p.dailyDone=0;
+    if(p.dailyDate==null)p.dailyDate=null;
     return p;
   }
   function currentPlayer(){ const p=store.players.find(p=>p.id===store.lastActive)||null; return p?ensureFields(p):null; }
@@ -4388,9 +4397,56 @@ window.QUESTION_BANK = {
   function touchStudyDay(p){
     const t=todayStr(); if(p.lastStudied===t)return [];
     const gap=daysBetween(p.lastStudied,t);
-    if(p.lastStudied===null)p.streakDays=1; else if(gap===1)p.streakDays+=1; else p.streakDays=1;
+    if(p.lastStudied===null){
+      p.streakDays=1;
+    } else if(gap===1){
+      p.streakDays+=1;
+    } else if(gap===2 && p.streakFreezes>0){
+      // missed exactly 1 day but have a streak freeze -> save the streak
+      p.streakFreezes-=1;
+      p.streakDays+=1;
+      toast('🧊 Streak freeze used! Your streak is safe.'); sfx('coin');
+    } else {
+      p.streakDays=1;
+    }
     p.lastStudied=t; const e=[];
-    if(p.streakDays>=3)e.push('streak_day3'); if(p.streakDays>=7)e.push('streak_day7'); return e;
+    if(p.streakDays>=3)e.push('streak_day3'); if(p.streakDays>=7)e.push('streak_day7');
+    if(p.streakDays>=14)e.push('streak_day14'); if(p.streakDays>=30)e.push('streak_day30');
+    // streak milestone celebrations
+    const milestones=[7,14,30,50,100,200,365];
+    if(milestones.includes(p.streakDays)){
+      setTimeout(()=>{ confetti({count:100}); sfx('level'); toast('🔥 '+p.streakDays+'-day streak!'); }, 400);
+    }
+    return e;
+  }
+
+  /* ---------- DAILY GOAL ---------- */
+  const DAILY_GOALS = [
+    { label:'Casual', n:5, desc:'5 questions/day' },
+    { label:'Regular', n:10, desc:'10 questions/day' },
+    { label:'Serious', n:20, desc:'20 questions/day' },
+    { label:'Intense', n:30, desc:'30 questions/day' },
+  ];
+  function touchDailyGoal(p){
+    const t=todayStr();
+    if(p.dailyDate!==t){ p.dailyDone=0; p.dailyDate=t; }
+    p.dailyDone+=1;
+    // check if they just hit the goal
+    if(p.dailyDone===p.dailyGoal){
+      setTimeout(()=>{
+        confetti({count:80}); sfx('badge'); haptic([30,50,30,50]);
+        toast('🎯 Daily goal complete!');
+      }, 300);
+      const got=awardBadges(p,['goal_first']); persist();
+      got.forEach(g=>toast(g.name,true,g.icon));
+    }
+  }
+  function dailyProgress(p){
+    const t=todayStr();
+    const done=(p.dailyDate===t)?p.dailyDone:0;
+    const goal=p.dailyGoal||10;
+    const pct=Math.min(100,Math.round(done/goal*100));
+    return { done, goal, pct, complete:done>=goal };
   }
 
   /* =========================================================
@@ -4691,6 +4747,11 @@ window.QUESTION_BANK = {
     #iac-root .hud .who .rk{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--buzz-dk);font-weight:700;}
     #iac-root .xpbar{height:7px;background:var(--paper-2);border-radius:6px;margin-top:7px;overflow:hidden;}
     #iac-root .xpfill{height:100%;background:linear-gradient(90deg,var(--gold),var(--buzz));border-radius:6px;transition:width .5s;}
+    #iac-root .daily-goal-bar{padding:8px 16px;margin-top:6px;display:flex;align-items:center;gap:12px;}
+    #iac-root .dg-label{font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap;min-width:140px;}
+    #iac-root .dg-track{flex:1;height:8px;background:var(--paper-2);border-radius:6px;overflow:hidden;}
+    #iac-root .dg-fill{height:100%;background:linear-gradient(90deg,var(--green),var(--green-dk));border-radius:6px;transition:width .5s;}
+    #iac-root .dg-fill.done{background:linear-gradient(90deg,var(--gold),var(--gold-dk));}
     #iac-root .hud .lvl{text-align:center;}#iac-root .hud .lvl .ln{font-family:Georgia,serif;font-size:26px;font-weight:700;line-height:1;}
     #iac-root .hud .lvl .lk{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);}
     #iac-root .hud .flame{text-align:center;}#iac-root .hud .flame .fn{font-family:Georgia,serif;font-size:20px;font-weight:700;}
@@ -5403,17 +5464,22 @@ window.QUESTION_BANK = {
     const span=next?(next.xp-cur.xp):1, into=next?(p.xp-cur.xp):1;
     const pct=next?Math.max(4,Math.min(100,Math.round(into/span*100))):100;
     const nextLabel=next?`${next.xp-p.xp} XP to Lv ${next.lvl}`:'Max rank';
+    const dg=dailyProgress(p);
     return `<div class="hud card-base">
       <div class="av">${p.avatar}</div>
       <div class="who"><div class="nm">${p.name}</div><div class="rk">${cur.title} · ${nextLabel}</div>
         <div class="xpbar"><div class="xpfill" style="width:0%" data-fill="${pct}"></div></div></div>
       <div class="lvl"><div class="ln">${cur.lvl}</div><div class="lk">Level</div></div>
-      <div class="flame"><div class="fn">🔥${p.streakDays}</div><div class="fk">Day streak</div></div>
+      <div class="flame"><div class="fn">🔥${p.streakDays}</div><div class="fk">Day streak${p.streakFreezes?'<br>🧊'+p.streakFreezes:''}</div></div>
+    </div>
+    <div class="daily-goal-bar card-base">
+      <div class="dg-label">${dg.complete?'🎯 Daily goal complete!':'🎯 Daily goal: '+dg.done+'/'+dg.goal}</div>
+      <div class="dg-track"><div class="dg-fill${dg.complete?' done':''}" style="width:0%" data-fill="${dg.pct}"></div></div>
     </div>`;
   }
   // after any render that includes a HUD, fill its bar smoothly
   function animateBars(){
-    app.querySelectorAll('.xpfill[data-fill]').forEach(el=>{
+    app.querySelectorAll('.xpfill[data-fill],.dg-fill[data-fill]').forEach(el=>{
       const target=el.getAttribute('data-fill');
       requestAnimationFrame(()=>requestAnimationFrame(()=>{ el.style.width=target+'%'; }));
     });
@@ -5522,6 +5588,15 @@ window.QUESTION_BANK = {
         <div><div class="setname">Sound effects</div><div class="setdesc">Buzz, dings, win fanfare and coin sounds</div></div>
         <button class="toggle ${store.muted?'':'on'}" id="muteToggle" role="switch" aria-checked="${!store.muted}"><span class="knob"></span></button>
       </div>
+      <div class="settingrow">
+        <div><div class="setname">Daily goal</div><div class="setdesc">Answer this many questions each day to keep your streak strong</div></div>
+        <select id="goalSelect" style="font-size:14px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--paper-2);color:var(--ink);font-family:inherit;">
+          ${DAILY_GOALS.map(g=>`<option value="${g.n}" ${p.dailyGoal===g.n?'selected':''}>${g.label} (${g.n})</option>`).join('')}
+        </select>
+      </div>
+      <div class="settingrow">
+        <div><div class="setname">Streak freezes</div><div class="setdesc">🧊 You have ${p.streakFreezes||0}. Protects your streak if you miss a day. Buy more in the shop.</div></div>
+      </div>
       <div class="row"><div class="ttl">Security</div></div>
       <div class="err" style="min-height:0;${acctMsg?'':'display:none;'}">${acctMsg}</div>
       <div class="acctbtns">
@@ -5534,6 +5609,7 @@ window.QUESTION_BANK = {
         : "Remember: there's no reset. If you change your PIN, don't forget the new one — it's the only way back in."}</div>
     </div>${tabBar()}`;
     app.querySelector('#muteToggle').onclick=()=>{ toggleMute(); renderAccount(); };
+    const gs=app.querySelector('#goalSelect'); if(gs)gs.onchange=()=>{ const p=currentPlayer(); p.dailyGoal=parseInt(gs.value)||10; persist(); renderAccount(); };
     app.querySelector('#logout').onclick=async ()=>{ if(CLOUD_ON){ await Cloud.signOut(); } store.lastActive=null; persist(); view='welcome'; render(); };
     const cp=app.querySelector('#changePin'); if(cp)cp.onclick=()=>changePinFlow();
     app.querySelector('#delAcct').onclick=()=>deleteAccountFlow();
@@ -5759,6 +5835,7 @@ window.QUESTION_BANK = {
       sfx('correct'); setTimeout(()=>sfx('coin'),180);
       floatXP('+'+coins+' 🪙', true);
       if(race.wins>=2) comboOverlay(race.wins);
+      touchDailyGoal(p);
       persist(); render();
     } else if(race.shieldArmed){
       // shield absorbs the miss: no point lost, no bot scoop, retry-free skip
@@ -6106,7 +6183,7 @@ window.QUESTION_BANK = {
     let body='';
     if(shopTab==='powerups'){
       body=`<div class="shopgrid">${SHOP.powerups.map(it=>{
-        const owned=p.powerups[it.id]||0;
+        const owned=it.id==='streakfreeze' ? (p.streakFreezes||0) : (p.powerups[it.id]||0);
         return `<div class="shopcard"><div class="si">${it.icon}</div><div class="sname">${it.name}</div><div class="sdesc">${it.desc}</div><div class="sown">You have: ${owned}</div>
           <button class="btn buzz sm" data-buy-pu="${it.id}">🪙 ${it.cost}</button></div>`;
       }).join('')}</div>`;
@@ -6150,7 +6227,10 @@ window.QUESTION_BANK = {
     if(kind==='th'){ item=THEMES.find(x=>x.id===id); cost=item.cost; }
     if(p.coins<cost){ toast('Not enough coins — win a race!'); return; }
     p.coins-=cost;
-    if(kind==='pu'){ p.powerups[id]=(p.powerups[id]||0)+1; toast(`Bought ${item.name}`); }
+    if(kind==='pu'){
+      if(id==='streakfreeze'){ p.streakFreezes=(p.streakFreezes||0)+1; toast('Bought Streak Freeze (you have '+p.streakFreezes+')'); }
+      else { p.powerups[id]=(p.powerups[id]||0)+1; toast(`Bought ${item.name}`); }
+    }
     else { p.owned[id]=true; toast(`Unlocked ${item.name}`); }
     sfx('coin'); haptic(15);
     persist(); renderShop();
@@ -6205,6 +6285,7 @@ window.QUESTION_BANK = {
     const p=currentPlayer(); const qq=q.deck[q.idx];
     q.answered=true;q.lastRight=right;q.lastPts=pts;q.lastEarly=early;
     p.totalAnswered+=1;
+    touchDailyGoal(p);
     updateMastery(p, qq._sid, qq._qidx, right, q.attemptsThisQ);
     const nb=[];
     if(right){
