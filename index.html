@@ -1,4 +1,18 @@
-<!-- IAC Practice v3 -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#f3ede0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="IAC Practice">
+<title>IAC Practice</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+</head>
+<body style="margin:0;background:#f3ede0;">
+<!-- IAC Practice v4 -->
 <div id="iac-root"></div>
 
 <script>
@@ -4966,6 +4980,72 @@ window.QUESTION_BANK = {
     #iac-root .toast.in{opacity:1;transform:translateY(0) scale(1);}
     #iac-root .toast.out{opacity:0;transform:translateY(8px) scale(.96);}
     #iac-root .toast.badge{background:linear-gradient(90deg,var(--gold-dk),var(--gold));color:#1c1303;display:flex;align-items:center;gap:8px;}#iac-root .toast .ti{font-size:20px;}
+
+    /* =========== MOBILE RESPONSIVE =========== */
+    @media(max-width:520px){
+      #iac-root{padding:10px 10px 85px;font-size:16px;}
+      #iac-root .welcome{margin:20px auto 0;}
+      #iac-root .welcome h1{font-size:32px!important;}
+      #iac-root .welcome .sub{font-size:15px;}
+      #iac-root .btn{font-size:16px;padding:14px 16px;min-width:100px;border-radius:13px;}
+      #iac-root .btn.sm{font-size:14px;padding:10px 14px;}
+      #iac-root .hud{padding:10px 12px;gap:10px;}
+      #iac-root .hud .av{font-size:28px!important;}
+      #iac-root .hud .nm{font-size:16px;}
+      #iac-root .hud .rk{font-size:11px;}
+      #iac-root .hud .lvl .ln{font-size:20px;}
+      #iac-root .hud .flame .fn{font-size:18px;}
+      #iac-root .daily-goal-bar{padding:8px 12px;gap:8px;flex-wrap:wrap;}
+      #iac-root .dg-label{font-size:13px;min-width:auto;}
+      #iac-root .dg-track{min-width:80px;}
+      #iac-root .tabbar{padding:6px 8px 10px;}
+      #iac-root .tabbtn{font-size:11px;padding:8px 6px;}
+      #iac-root .tabbtn .ti{font-size:16px;}
+      #iac-root .card-base{padding:18px 14px;border-radius:16px;}
+      #iac-root .login{padding:20px 16px;max-width:100%;}
+      #iac-root .authfield input{font-size:18px;padding:13px 14px;}
+      #iac-root .authfield label{font-size:12px;}
+      #iac-root .sub{font-size:15px;}
+      #iac-root .pn{font-size:20px;}
+      #iac-root .sheet{padding:12px 14px;}
+      #iac-root .sheet .sn{font-size:15px;}
+      #iac-root .eyebrow{font-size:10px;}
+      #iac-root .crumb{font-size:10px;}
+      #iac-root .sgrid{gap:8px;}
+      #iac-root .sgrid .cell .n{font-size:18px;}
+      #iac-root .sgrid .cell .k{font-size:8px;}
+      #iac-root .acctgrid{gap:8px;}
+      #iac-root .acel .n{font-size:20px;}
+      #iac-root .acel .k{font-size:9px;}
+      #iac-root .clue{font-size:17px;line-height:1.55;padding:16px 14px;}
+      #iac-root .reveal{padding:12px 14px;}
+      #iac-root .reveal .v{font-size:15px;}
+      #iac-root .reveal .ans{font-size:20px;}
+      #iac-root .worth{font-size:16px;}
+      #iac-root .big{font-size:42px!important;}
+      #iac-root .standings .standrow{font-size:15px;padding:10px 12px;}
+      #iac-root .standings .pos{font-size:18px;}
+      #iac-root .standings .sa{font-size:20px;}
+      #iac-root .shopcard{padding:14px 12px;}
+      #iac-root .shopcard .si{font-size:28px;}
+      #iac-root .shopcard .sname{font-size:14px;}
+      #iac-root .shopcard .sdesc{font-size:12px;}
+      #iac-root .powerbar{gap:4px;}
+      #iac-root .powerbar button{font-size:18px;padding:8px;}
+      #iac-root .raceans{font-size:20px;padding:14px 16px;}
+      #iac-root .buzzrow .btn{font-size:18px;padding:16px 10px;}
+      #iac-root .settingrow{padding:12px 0;}
+      #iac-root .setname{font-size:15px;}
+      #iac-root .setdesc{font-size:13px;}
+      #iac-root .combo-text{font-size:36px;}
+      #iac-root .combo-text.mega{font-size:44px;}
+      #iac-root .pb-banner{font-size:16px;padding:10px 12px;}
+      #iac-root .perfect-banner{font-size:17px;padding:12px 14px;}
+      #iac-root .muted-note{font-size:12px;}
+      #iac-root .cloudrow{font-size:12px;padding:8px 10px;}
+      #iac-root .err{font-size:14px;}
+      #iac-root .okmsg{font-size:14px;}
+    }
   `;
   const rootEl=document.getElementById('iac-root');
   const stEl=document.createElement('style'); stEl.textContent=css; rootEl.appendChild(stEl);
@@ -6467,3 +6547,11 @@ window.QUESTION_BANK = {
   boot();
 })();
 </script>
+<script>
+// PWA: register service worker
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+</script>
+</body>
+</html>
