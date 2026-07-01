@@ -10,6 +10,8 @@
 <title>IAC Practice</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
+<!-- OneSignal push notifications (free, up to 10k subscribers) -->
+<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
 </head>
 <body style="margin:0;background:#f3ede0;">
 <!-- IAC Practice v4 -->
@@ -6552,6 +6554,15 @@ window.QUESTION_BANK = {
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
+
+// OneSignal push notifications (replace 04e1da51-3f5a-4bca-af0b-211e844801bf with your real app ID)
+window.OneSignalDeferred = window.OneSignalDeferred || [];
+OneSignalDeferred.push(function(OneSignal) {
+  OneSignal.init({
+    appId: "04e1da51-3f5a-4bca-af0b-211e844801bf",
+    notifyButton: { enable: false },
+  });
+});
 
 // ===== INSTALL PROMPT — cross-platform (iOS Safari, Chrome, Samsung, etc.) =====
 (function(){
