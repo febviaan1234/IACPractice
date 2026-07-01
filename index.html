@@ -4498,6 +4498,28 @@ window.QUESTION_BANK = {
     @keyframes shine{0%{background-position:-120% 0;}100%{background-position:220% 0;}}
     @keyframes medalPop{0%{transform:scale(0) rotate(-30deg);opacity:0;}55%{transform:scale(1.25) rotate(8deg);}75%{transform:scale(.92) rotate(-4deg);}100%{transform:scale(1) rotate(0);opacity:1;}}
     @keyframes confettiFall{0%{transform:translateY(-10vh) translateX(0) rotate(0);opacity:1;}100%{transform:translateY(110vh) translateX(var(--drift)) rotate(calc(var(--rot) + 720deg));opacity:.9;}}
+
+    /* gamification effects */
+    @keyframes floatUp{0%{opacity:1;transform:translateY(0) scale(1);}60%{opacity:1;transform:translateY(-60px) scale(1.1);}100%{opacity:0;transform:translateY(-100px) scale(0.8);}}
+    @keyframes comboPulse{0%{transform:scale(0.3);opacity:0;}30%{transform:scale(1.25);opacity:1;}60%{transform:scale(0.95);opacity:1;}100%{transform:scale(1);opacity:0;}}
+    @keyframes shakeIt{0%,100%{transform:translateX(0);}15%{transform:translateX(-6px);}30%{transform:translateX(5px);}45%{transform:translateX(-4px);}60%{transform:translateX(3px);}75%{transform:translateX(-2px);}90%{transform:translateX(1px);}}
+    @keyframes medalBounce{0%{transform:scale(0.2) rotate(-20deg);opacity:0;}40%{transform:scale(1.3) rotate(5deg);opacity:1;}65%{transform:scale(0.9) rotate(-3deg);}80%{transform:scale(1.08) rotate(1deg);}100%{transform:scale(1) rotate(0);opacity:1;}}
+    @keyframes streakGrow{0%{transform:scale(1);}50%{transform:scale(1.35);}100%{transform:scale(1);}}
+    @keyframes sparkle{0%{opacity:0;transform:scale(0) rotate(0);}50%{opacity:1;transform:scale(1.2) rotate(180deg);}100%{opacity:0;transform:scale(0) rotate(360deg);}}
+    @keyframes pbSlide{0%{transform:translateY(-30px) scale(0.8);opacity:0;}30%{transform:translateY(4px) scale(1.1);opacity:1;}60%{transform:translateY(-2px) scale(1);}100%{transform:translateY(0) scale(1);opacity:1;}}
+
+    #iac-root .xp-floater{position:absolute;pointer-events:none;font-weight:900;font-size:22px;color:var(--green-dk);text-shadow:0 1px 4px rgba(0,0,0,.18);animation:floatUp 1s ease-out forwards;z-index:900;white-space:nowrap;letter-spacing:-0.5px;}
+    #iac-root .xp-floater.coins{color:var(--gold-dk);font-size:18px;}
+    #iac-root .combo-text{position:fixed;top:38%;left:50%;transform:translate(-50%,-50%);pointer-events:none;font-weight:900;font-size:48px;color:var(--buzz);text-shadow:0 2px 12px rgba(214,69,31,.35);animation:comboPulse 0.9s ease-out forwards;z-index:910;white-space:nowrap;letter-spacing:-1px;}
+    #iac-root .combo-text.fire{color:var(--gold-dk);text-shadow:0 2px 12px rgba(255,170,0,.4);}
+    #iac-root .combo-text.mega{font-size:58px;color:var(--green-dk);text-shadow:0 2px 16px rgba(47,125,84,.4);}
+    #iac-root .shake{animation:shakeIt 0.4s ease-out;}
+    #iac-root .medalpop{animation:medalBounce 0.7s ease-out both;}
+    #iac-root .streak-live{display:inline-flex;align-items:center;gap:4px;font-weight:900;font-size:20px;color:var(--gold-dk);animation:streakGrow 0.35s ease-out;}
+    #iac-root .streak-live.hot{font-size:26px;color:var(--buzz);}
+    #iac-root .streak-live.mega{font-size:32px;color:var(--green-dk);text-shadow:0 0 8px rgba(47,125,84,.3);}
+    #iac-root .pb-banner{text-align:center;padding:10px 16px;margin:8px 0;border-radius:12px;background:linear-gradient(135deg,var(--gold) 0%,var(--gold-dk) 100%);color:#fff;font-weight:900;font-size:18px;letter-spacing:0.5px;animation:pbSlide 0.6s ease-out both;text-shadow:0 1px 3px rgba(0,0,0,.2);}
+    #iac-root .perfect-banner{text-align:center;padding:14px 16px;margin:10px 0;border-radius:14px;background:linear-gradient(135deg,var(--green) 0%,#1a6b3a 100%);color:#fff;font-weight:900;font-size:20px;letter-spacing:0.5px;animation:pbSlide 0.6s ease-out both;text-shadow:0 1px 3px rgba(0,0,0,.2);}
     @keyframes bobble{0%,100%{transform:translateY(0);}50%{transform:translateY(-5px);}}
     @keyframes glowPulse{0%,100%{box-shadow:0 0 0 0 rgba(214,69,31,0);}50%{box-shadow:0 0 0 4px rgba(214,69,31,.12);}}
     @media (prefers-reduced-motion: reduce){ #iac-root *{animation-duration:.01ms!important;} }
@@ -4964,6 +4986,49 @@ window.QUESTION_BANK = {
       else el.textContent=prefix+to;
     }
     requestAnimationFrame(step);
+  }
+
+  /* =========================================================
+     GAMIFICATION EFFECTS
+     ========================================================= */
+
+  // XP floater — "+25 XP" that floats up and fades
+  function floatXP(text, isCoins){
+    const el=document.createElement('div');
+    el.className='xp-floater'+(isCoins?' coins':'');
+    el.textContent=text;
+    // Position near center-ish of screen
+    el.style.left=(40+Math.random()*20)+'%';
+    el.style.top=(30+Math.random()*15)+'%';
+    fxLayer.appendChild(el);
+    setTimeout(()=>el.remove(), 1100);
+  }
+
+  // Combo text — "3x STREAK!" overlay that pulses and fades
+  function comboOverlay(streak){
+    if(streak<2) return;
+    const el=document.createElement('div');
+    const isFire=streak>=5, isMega=streak>=10;
+    el.className='combo-text'+(isMega?' mega':isFire?' fire':'');
+    if(isMega) el.textContent=streak+'x UNSTOPPABLE!';
+    else if(isFire) el.textContent=streak+'x ON FIRE!';
+    else el.textContent=streak+'x STREAK!';
+    rootEl.appendChild(el);
+    setTimeout(()=>el.remove(), 1000);
+  }
+
+  // Screen shake on wrong answer
+  function screenShake(){
+    rootEl.classList.add('shake');
+    setTimeout(()=>rootEl.classList.remove('shake'), 450);
+  }
+
+  // Personal Best banner check
+  function checkPB(p, currentStreak){
+    if(currentStreak>1 && currentStreak===p.bestStreakEver && currentStreak>=(q._pbAtStart||0)+1){
+      return true;
+    }
+    return false;
   }
 
   function toast(text,isBadge,icon){
@@ -5576,6 +5641,7 @@ window.QUESTION_BANK = {
       answerDeadline:0, answerTimer:null, answerLeft:0,
       lastResult:null, beatenThisQ:0,
       powerUsedTime:false, shieldArmed:false, doubleNext:false, slowmoThisQ:false,
+      _pbAtStart: currentPlayer().bestStreakEver||0,
     };
     subView='race'; render();
     beginQuestion();
@@ -5691,6 +5757,8 @@ window.QUESTION_BANK = {
       updateMastery(p, qq._sid, qq._qidx, true, early?1:2);
       race.lastResult={ who:'me', answer:qq.answer, coins, early };
       sfx('correct'); setTimeout(()=>sfx('coin'),180);
+      floatXP('+'+coins+' 🪙', true);
+      if(race.wins>=2) comboOverlay(race.wins);
       persist(); render();
     } else if(race.shieldArmed){
       // shield absorbs the miss: no point lost, no bot scoop, retry-free skip
@@ -5706,7 +5774,7 @@ window.QUESTION_BANK = {
       race.bots.forEach(b=>{ const pr=botParams(b,ramp); if(Math.random()<pr.acc+0.1){ if(!taker||Math.random()<0.5)taker=b; } });
       if(taker)taker.score+=1;
       race.lastResult={ who:'wrong', answer:qq.answer, taker, timedOut:!!timedOut };
-      sfx('wrong');
+      sfx('wrong'); screenShake();
       persist(); render();
     }
   }
@@ -5825,9 +5893,13 @@ window.QUESTION_BANK = {
     if(won && race.ramp>=8)nb.push('beat4');
     const got=awardBadges(p,nb); persist();
     race._standings=standings; race._myRank=myRank; race._bonus=bonus; race._botsBeaten=botsBeaten; race._won=won; race._got=got;
+    race._isPB = (race.me.score > 0 && race.me.score === (p.bestRace||0));
     subView='raceEnd'; render();
-    if(won){ sfx('win'); confetti({count:120}); haptic([40,60,40,60,80]); }
+    if(won){ sfx('win'); confetti({count:160}); haptic([40,60,40,60,80,40,80]);
+      setTimeout(()=>confetti({count:60}), 400);
+    }
     else { sfx('lose'); }
+    if(race._isPB){ setTimeout(()=>{ sfx('badge'); confetti({count:50}); }, 500); }
     got.forEach((g,i)=>setTimeout(()=>toast(g.name,true,g.icon), 400+i*300));
   }
 
@@ -5947,6 +6019,7 @@ window.QUESTION_BANK = {
         <div class="eyebrow">${race._won?'Victory':'Final standings'}</div>
         <div class="big medalpop">${medal}</div>
         <div class="label">${race._won?'You won the race!':'You placed #'+race._myRank} · beat ${race._botsBeaten} bot${race._botsBeaten===1?'':'s'}</div>
+        ${race._isPB?'<div class="pb-banner">🏆 NEW PERSONAL BEST!</div>':''}
         <div class="standings">${rows}</div>
         <div class="sgrid" style="grid-template-columns:repeat(3,1fr);">
           <div class="cell"><div class="n">${race.me.score}</div><div class="k">Your buzzes</div></div>
@@ -6118,7 +6191,7 @@ window.QUESTION_BANK = {
       revealedLines: mode==='full'?deck[0]._lines.length:1,
       answered:false, lastRight:null, lastPts:0, lastEarly:false, attemptsThisQ:0,
       points:0, streak:0, bestStreak:0, correct:0, earlyHits:0, missed:[], typed:'',
-      isMistakes: scope==='mistakes', levelUpTo:null, sessionBadges:[] };
+      isMistakes: scope==='mistakes', levelUpTo:null, sessionBadges:[], _pbAtStart:currentPlayer().bestStreakEver||0 };
     subView='quiz'; render();
     const inp=app.querySelector('#ansin'); if(inp)inp.focus();
   }
@@ -6155,11 +6228,23 @@ window.QUESTION_BANK = {
     const got=awardBadges(p,nb); persist();
     got.forEach(g=>{q.sessionBadges.push(g);toast(g.name,true,g.icon);});
     if(right&&pts>0)toast(`+${pts} XP${early?' · early 🔔':''}`);
-    // feedback sounds
+    // feedback sounds + effects
     if(right){
-      if(q.levelUpTo){ sfx('level'); confetti({count:90}); haptic([40,60,40]); }
+      if(q.levelUpTo){ sfx('level'); confetti({count:140}); haptic([40,60,40,80,40]); toast('🎉 LEVEL UP! '+q.levelUpTo.title,false); }
       else { sfx('correct'); setTimeout(()=>sfx('coin'),140); }
-    } else { sfx('wrong'); }
+      // XP floater
+      if(pts>0) floatXP('+'+pts+' XP');
+      setTimeout(()=>floatXP('+🪙',true), 200);
+      // Combo overlay
+      comboOverlay(q.streak);
+      // Personal best streak celebration
+      if(checkPB(p, q.streak)){
+        setTimeout(()=>{ confetti({count:60}); sfx('badge'); toast('🏆 NEW PERSONAL BEST! '+q.streak+' streak!'); haptic([30,50,30,50,80]); }, 300);
+      }
+    } else {
+      sfx('wrong');
+      screenShake();
+    }
   }
   function submitAnswer(){
     const qq=q.deck[q.idx],total=qq._lines.length,typed=(q.typed||'').trim();
@@ -6240,17 +6325,23 @@ window.QUESTION_BANK = {
 
   function renderSummary(){
     const p=currentPlayer(); const total=q.deck.length; const pct=Math.round(q.correct/total*100);
+    const isPerfect=q.correct===total && total>0;
+    const isPB=q.bestStreak>0 && q.bestStreak>(q._pbAtStart||0);
     const sheetLabel=q.scope==='both'?'Both tabs':q.scope==='mistakes'?'Mistakes drill':BANK.sheets.find(s=>s.id===q.scope).name;
     const earned=q.sessionBadges;
     const earnedHtml=earned.length?`<div class="earned">${earned.map(b=>`<div class="e"><span>${b.icon}</span>${b.name}</div>`).join('')}</div>`:'';
     const missedHtml=q.missed.length?`<div class="missed"><h3>Sent to your Mistakes queue (${q.missed.length})</h3>${q.missed.map(m=>`<div class="m"><span>${m.answer}</span><b>you: ${m.yours}</b></div>`).join('')}</div>`:`<div class="missed"><h3>Clean sweep — nothing missed. 🧹</h3></div>`;
     const {cur}=rankFor(p.xp);
+    if(isPerfect){ setTimeout(()=>{ confetti({count:180}); sfx('win'); haptic([40,60,40,60,80]); }, 200); setTimeout(()=>confetti({count:80}), 700); }
+    else if(isPB){ setTimeout(()=>{ confetti({count:70}); sfx('badge'); }, 300); }
     app.innerHTML=`<div class="wrap">
       <div class="topnav"><button class="back" id="done">← Done</button><div class="crumb"><b>${sheetLabel}</b> · complete</div></div>
       <div class="summary card-base">
         <div class="eyebrow">Set score</div>
         <div class="big">${q.points}<span class="slash"> pts</span></div>
         <div class="label">${q.correct}/${total} correct · ${pct}% · Lv ${cur.lvl} ${cur.title}</div>
+        ${isPerfect?'<div class="perfect-banner">⭐ PERFECT ROUND! ⭐</div>':''}
+        ${isPB&&!isPerfect?'<div class="pb-banner">🏆 NEW BEST STREAK: '+q.bestStreak+'!</div>':''}
         <div class="sgrid">
           <div class="cell"><div class="n">${q.earlyHits}</div><div class="k">Early buzzes</div></div>
           <div class="cell"><div class="n">${q.bestStreak}</div><div class="k">Best streak</div></div>
