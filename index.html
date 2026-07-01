@@ -6552,6 +6552,139 @@ window.QUESTION_BANK = {
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
+
+// ===== INSTALL PROMPT — cross-platform (iOS Safari, Chrome, Samsung, etc.) =====
+(function(){
+  // Don't show if already installed as PWA
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  if(isStandalone) return;
+
+  // Don't show if user already dismissed it
+  try{ if(localStorage.getItem('iac_install_dismissed')) return; }catch(e){}
+
+  // Detect platform
+  const ua = navigator.userAgent || '';
+  const isIOS = /iPhone|iPad|iPod/.test(ua) && !window.MSStream;
+  const isSafari = isIOS && !(/CriOS|FxiOS|OPiOS|EdgiOS/.test(ua));
+  const isAndroid = /Android/.test(ua);
+  const isChrome = /Chrome/.test(ua) && !/Edge|Edg|OPR|SamsungBrowser/.test(ua);
+  const isSamsung = /SamsungBrowser/.test(ua);
+
+  // On Android Chrome/Samsung, capture the native install prompt
+  let deferredPrompt = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+  });
+
+  // Build the banner after a short delay so it doesn't interrupt login
+  setTimeout(()=>{
+    // Double-check not dismissed
+    try{ if(localStorage.getItem('iac_install_dismissed')) return; }catch(e){}
+    if(window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) return;
+
+    let stepsHtml = '';
+    let canNativeInstall = false;
+
+    if(isSafari){
+      stepsHtml = `
+        <div class="install-step"><span class="install-num">1</span> Tap the <b>Share</b> button <span class="install-icon">&#x1F4E4;</span> at the bottom of Safari</div>
+        <div class="install-step"><span class="install-num">2</span> Scroll down and tap <b>"Add to Home Screen"</b></div>
+        <div class="install-step"><span class="install-num">3</span> Tap <b>Add</b> in the top right</div>
+      `;
+    } else if(isIOS){
+      stepsHtml = `
+        <div class="install-step"><span class="install-num">1</span> Open this page in <b>Safari</b> (not this browser)</div>
+        <div class="install-step"><span class="install-num">2</span> Tap the <b>Share</b> button <span class="install-icon">&#x1F4E4;</span></div>
+        <div class="install-step"><span class="install-num">3</span> Tap <b>"Add to Home Screen"</b></div>
+      `;
+    } else if(isAndroid && (isChrome || isSamsung)){
+      canNativeInstall = !!deferredPrompt;
+      if(canNativeInstall){
+        stepsHtml = `
+          <div class="install-step">Tap the <b>Install</b> button below to add IAC Practice to your home screen.</div>
+        `;
+      } else {
+        stepsHtml = `
+          <div class="install-step"><span class="install-num">1</span> Tap the <b>three-dot menu</b> (&#x22EE;) in the top right</div>
+          <div class="install-step"><span class="install-num">2</span> Tap <b>"Add to Home screen"</b> or <b>"Install app"</b></div>
+          <div class="install-step"><span class="install-num">3</span> Tap <b>Install</b> or <b>Add</b></div>
+        `;
+      }
+    } else {
+      // Generic / desktop
+      stepsHtml = `
+        <div class="install-step">Look for an <b>install icon</b> in your browser's address bar, or use your browser's menu to <b>"Install app"</b> or <b>"Add to Home Screen."</b></div>
+      `;
+    }
+
+    const banner = document.createElement('div');
+    banner.id = 'installBanner';
+    banner.innerHTML = `
+      <div class="install-card">
+        <div class="install-header">
+          <span class="install-emoji">📲</span>
+          <div>
+            <div class="install-title">Install IAC Practice</div>
+            <div class="install-sub">Add it to your home screen for the full app experience — no browser bar, loads instantly.</div>
+          </div>
+        </div>
+        <div class="install-steps">${stepsHtml}</div>
+        <div class="install-btns">
+          ${canNativeInstall ? '<button class="install-btn primary" id="installNow">Install</button>' : ''}
+          <button class="install-btn dismiss" id="installDismiss">Maybe later</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(banner);
+
+    // Animate in
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{ banner.classList.add('show'); }));
+
+    // Wire buttons
+    const dismiss = ()=>{
+      banner.classList.remove('show');
+      setTimeout(()=>banner.remove(), 400);
+      try{ localStorage.setItem('iac_install_dismissed', '1'); }catch(e){}
+    };
+    document.getElementById('installDismiss').onclick = dismiss;
+
+    if(canNativeInstall){
+      document.getElementById('installNow').onclick = async ()=>{
+        if(deferredPrompt){
+          deferredPrompt.prompt();
+          const result = await deferredPrompt.userChoice;
+          deferredPrompt = null;
+        }
+        dismiss();
+      };
+    }
+  }, 2500); // show after 2.5s so user sees the app first
+})();
 </script>
+
+<style>
+#installBanner{position:fixed;bottom:0;left:0;right:0;z-index:9999;padding:12px;transform:translateY(100%);transition:transform .35s ease-out;pointer-events:none;}
+#installBanner.show{transform:translateY(0);pointer-events:auto;}
+#installBanner .install-card{max-width:420px;margin:0 auto;background:#fff;border-radius:18px;padding:20px 18px;box-shadow:0 -2px 24px rgba(0,0,0,.15);font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;}
+@media(prefers-color-scheme:dark){#installBanner .install-card{background:#2a2a28;color:#f0ead8;}}
+#installBanner .install-header{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px;}
+#installBanner .install-emoji{font-size:32px;flex-shrink:0;margin-top:2px;}
+#installBanner .install-title{font-size:17px;font-weight:700;margin-bottom:4px;}
+#installBanner .install-sub{font-size:13px;color:#6f6553;line-height:1.4;}
+@media(prefers-color-scheme:dark){#installBanner .install-sub{color:#a8a090;}}
+#installBanner .install-steps{margin-bottom:16px;}
+#installBanner .install-step{display:flex;align-items:center;gap:10px;padding:8px 0;font-size:14px;line-height:1.4;border-bottom:0.5px solid rgba(0,0,0,.08);}
+#installBanner .install-step:last-child{border-bottom:none;}
+@media(prefers-color-scheme:dark){#installBanner .install-step{border-bottom-color:rgba(255,255,255,.08);}}
+#installBanner .install-num{width:24px;height:24px;border-radius:50%;background:#d6451f;color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+#installBanner .install-icon{font-size:18px;}
+#installBanner .install-btns{display:flex;gap:10px;}
+#installBanner .install-btn{flex:1;border:none;border-radius:12px;padding:13px 16px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:transform .1s;}
+#installBanner .install-btn:active{transform:scale(.97);}
+#installBanner .install-btn.primary{background:#d6451f;color:#fff;}
+#installBanner .install-btn.dismiss{background:rgba(0,0,0,.06);color:#6f6553;}
+@media(prefers-color-scheme:dark){#installBanner .install-btn.dismiss{background:rgba(255,255,255,.1);color:#a8a090;}}
+</style>
 </body>
 </html>
