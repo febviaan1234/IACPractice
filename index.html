@@ -3975,16 +3975,16 @@ window.QUESTION_BANK = {
   const CLOUD_ON = !!SB;
 
   // ===== APP VERSION & CHANGELOG =====
-  const APP_VERSION = 34;
+  const APP_VERSION = 35;
   const CHANGELOG = {
-    version: 34,
-    title: "What's New",
+    version: 35,
+    title: "What's New - Multiplayer!",
     items: [
-      'See who is online! Green dots show active players on the leaderboard.',
-      'Invite friends to play! Tap "Play" next to an online friend to send them a game invite.',
-      'Three leaderboard tabs: Friends, This Week, and All Time.',
-      'Friend requests: search for players and add friends from the Account tab.',
-      'Weekly XP tracking resets every Monday for fresh competition.',
+      'Play Online! When friends are online, pick an arena and choose "Play Online" to create a lobby.',
+      'Game lobbies: invite friends, see who is in the room, and start the race when ready.',
+      'Bots fill empty slots so you always have enough competitors.',
+      'Friends get a popup invite that lets them join your game instantly.',
+      'See who is online with green dots on the leaderboard.',
     ]
   };
 
@@ -4708,6 +4708,28 @@ window.QUESTION_BANK = {
     .invite-btn.accept{background:#d6451f;color:#fff;}
     .invite-btn.decline{background:rgba(0,0,0,.06);color:#6f6553;}
     @media(prefers-color-scheme:dark){.invite-btn.decline{background:rgba(255,255,255,.1);color:#a8a090;}}
+
+    /* lobby */
+    #playModeOverlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;transition:opacity .3s;pointer-events:none;}
+    #playModeOverlay.show{opacity:1;pointer-events:auto;}
+    #iac-root .lobby-header{text-align:center;padding:16px;margin-bottom:12px;}
+    #iac-root .lobby-code{font-size:14px;color:var(--muted);margin-bottom:4px;}
+    #iac-root .lobby-code strong{font-size:20px;letter-spacing:2px;color:var(--ink);}
+    #iac-root .lobby-arena{font-size:14px;color:var(--muted);margin-bottom:4px;}
+    #iac-root .lobby-count{font-size:12px;color:var(--muted);}
+    #iac-root .lobby-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:10px;margin:12px 0;}
+    #iac-root .lobby-player{text-align:center;padding:14px 8px;border-radius:14px;background:var(--paper-2);border:1.5px solid var(--line);}
+    #iac-root .lobby-player.me{border-color:var(--buzz);background:color-mix(in srgb,var(--buzz) 8%,var(--paper-2));}
+    #iac-root .lobby-player.bot{opacity:.7;}
+    #iac-root .lobby-player.empty{opacity:.4;border-style:dashed;}
+    #iac-root .lobby-av{font-size:28px;margin-bottom:4px;}
+    #iac-root .lobby-name{font-size:12px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    #iac-root .bot-tag{font-size:9px;color:var(--muted);font-weight:400;text-transform:uppercase;letter-spacing:.05em;}
+    #iac-root .lobby-actions{margin:16px 0;}
+    #iac-root .lobby-waiting{text-align:center;padding:20px;color:var(--muted);font-size:15px;}
+    #iac-root .lobby-spinner{display:inline-block;width:20px;height:20px;border:3px solid var(--line);border-top-color:var(--buzz);border-radius:50%;animation:spin 1s linear infinite;margin-right:8px;vertical-align:middle;}
+    @keyframes spin{to{transform:rotate(360deg);}}
+    #iac-root .lobby-invite-section{margin:12px 0;padding:12px;background:var(--paper-2);border-radius:12px;}
     @keyframes bobble{0%,100%{transform:translateY(0);}50%{transform:translateY(-5px);}}
     @keyframes glowPulse{0%,100%{box-shadow:0 0 0 0 rgba(214,69,31,0);}50%{box-shadow:0 0 0 4px rgba(214,69,31,.12);}}
     @media (prefers-reduced-motion: reduce){ #iac-root *{animation-duration:.01ms!important;} }
@@ -5321,6 +5343,7 @@ window.QUESTION_BANK = {
     if(view==='tab'){
       if(subView==='quiz')return renderQuiz();
       if(subView==='summary')return renderSummary();
+      if(subView==='lobby')return renderLobby();
       if(subView==='race')return renderRace();
       if(subView==='raceEnd')return renderRaceEnd();
       if(activeTab==='play')return renderPlay();
@@ -5666,7 +5689,7 @@ window.QUESTION_BANK = {
       .on('broadcast', { event:'game_invite' }, (payload)=>{
         const msg = payload.payload;
         if(!msg || msg.to !== currentPlayer().cloudId) return;
-        showInvitePopup(msg);
+        showInvitePopup_v2(msg);
       })
       .subscribe(async (status)=>{
         if(status==='SUBSCRIBED'){
@@ -5742,6 +5765,296 @@ window.QUESTION_BANK = {
     };
     // auto-dismiss after 30s
     setTimeout(()=>{ if(document.getElementById('inviteOverlay')){ overlay.classList.remove('show'); setTimeout(()=>overlay.remove(),350); pendingInvite=null; } }, 30000);
+  }
+
+  /* =========================================================
+     MULTIPLAYER LOBBY (Phase 2)
+     Create/join a room, see who's in it, start a synced race.
+     ========================================================= */
+  let lobby = null; // { code, channel, arena, players:[], isHost, status }
+
+  function genRoomCode(){ return Math.random().toString(36).substring(2,8).toUpperCase(); }
+
+  // Seeded shuffle so all players get the same deck from the same seed
+  function seededShuffle(arr, seed){
+    const a=arr.slice();
+    let s=0; for(let i=0;i<seed.length;i++) s=((s<<5)-s)+seed.charCodeAt(i)|0;
+    function rng(){ s=Math.imul(s^(s>>>16),0x45d9f3b); s=Math.imul(s^(s>>>13),0x45d9f3b); return ((s^(s>>>16))>>>0)/4294967296; }
+    for(let i=a.length-1;i>0;i--){ const j=Math.floor(rng()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
+    return a;
+  }
+
+  async function createLobby(arena){
+    if(!CLOUD_ON||lobby) return;
+    const p=currentPlayer(); if(!p||!p.cloudId) return;
+    const code = genRoomCode();
+    const ch = SB.channel('lobby-'+code);
+
+    lobby = {
+      code, channel:ch, arena,
+      players:[{ id:p.cloudId, name:p.name, avatar:p.avatar, ready:true }],
+      isHost:true, status:'waiting'
+    };
+
+    ch.on('broadcast', { event:'lobby_join' }, (msg)=>{
+      const d=msg.payload;
+      if(!lobby.players.find(x=>x.id===d.id)){
+        lobby.players.push({ id:d.id, name:d.name, avatar:d.avatar, ready:true });
+        sfx('coin'); toast(d.name+' joined!');
+        // tell the new player the current state
+        ch.send({ type:'broadcast', event:'lobby_state', payload:{ players:lobby.players, arena:lobby.arena, host:lobby.players[0].name } });
+        if(subView==='lobby') renderLobby();
+      }
+    });
+    ch.on('broadcast', { event:'lobby_leave' }, (msg)=>{
+      lobby.players = lobby.players.filter(x=>x.id!==msg.payload.id);
+      if(subView==='lobby') renderLobby();
+    });
+    ch.on('broadcast', { event:'lobby_start' }, (msg)=>{
+      if(!lobby.isHost) startLobbyRace(msg.payload);
+    });
+
+    await ch.subscribe();
+    subView='lobby'; render();
+  }
+
+  async function joinLobby(code, arena){
+    if(!CLOUD_ON) return;
+    const p=currentPlayer(); if(!p||!p.cloudId) return;
+    const ch = SB.channel('lobby-'+code);
+
+    lobby = {
+      code, channel:ch, arena: arena||'any',
+      players:[{ id:p.cloudId, name:p.name, avatar:p.avatar, ready:true }],
+      isHost:false, status:'waiting'
+    };
+
+    ch.on('broadcast', { event:'lobby_state' }, (msg)=>{
+      lobby.players = msg.payload.players;
+      lobby.arena = msg.payload.arena||lobby.arena;
+      if(subView==='lobby') renderLobby();
+    });
+    ch.on('broadcast', { event:'lobby_join' }, (msg)=>{
+      const d=msg.payload;
+      if(!lobby.players.find(x=>x.id===d.id)){
+        lobby.players.push({ id:d.id, name:d.name, avatar:d.avatar, ready:true });
+        sfx('coin');
+        if(subView==='lobby') renderLobby();
+      }
+    });
+    ch.on('broadcast', { event:'lobby_leave' }, (msg)=>{
+      lobby.players = lobby.players.filter(x=>x.id!==msg.payload.id);
+      if(subView==='lobby') renderLobby();
+    });
+    ch.on('broadcast', { event:'lobby_start' }, (msg)=>{
+      startLobbyRace(msg.payload);
+    });
+
+    await ch.subscribe();
+    // announce ourselves
+    await ch.send({ type:'broadcast', event:'lobby_join', payload:{ id:p.cloudId, name:p.name, avatar:p.avatar } });
+    subView='lobby'; view='tab'; activeTab='play'; render();
+  }
+
+  function leaveLobby(){
+    if(!lobby) return;
+    const p=currentPlayer();
+    if(p&&p.cloudId&&lobby.channel){
+      lobby.channel.send({ type:'broadcast', event:'lobby_leave', payload:{ id:p.cloudId } });
+    }
+    if(lobby.channel){ SB.removeChannel(lobby.channel); }
+    lobby=null;
+    subView=null; render();
+  }
+
+  function renderLobby(){
+    if(!lobby) return;
+    const p=currentPlayer();
+    const maxPlayers=10;
+    const humanCount=lobby.players.length;
+    const botCount=Math.max(0, Math.min(3, 4-humanCount)); // fill to at least 4
+    const arenaName = lobby.arena==='gauntlet'?'The Gauntlet':(BANK.sheets.find(s=>s.id===lobby.arena)||{}).name||lobby.arena;
+
+    const playerCards = lobby.players.map((pl,i)=>{
+      const isMe = pl.id===(p.cloudId||p.id);
+      const isHost = i===0;
+      return `<div class="lobby-player${isMe?' me':''}">
+        <div class="lobby-av">${pl.avatar||'🧑'}</div>
+        <div class="lobby-name">${pl.name}${isMe?' (you)':''}${isHost?' 👑':''}</div>
+      </div>`;
+    }).join('');
+
+    const botCards = Array.from({length:botCount},(_,i)=>{
+      const bot = BOT_ROSTER[i%BOT_ROSTER.length];
+      return `<div class="lobby-player bot">
+        <div class="lobby-av">${bot.icon}</div>
+        <div class="lobby-name">${bot.name} <span class="bot-tag">BOT</span></div>
+      </div>`;
+    }).join('');
+
+    const emptySlots = Math.max(0, maxPlayers - humanCount - botCount);
+    const emptyCards = Array.from({length:Math.min(emptySlots,3)},()=>`<div class="lobby-player empty"><div class="lobby-av">?</div><div class="lobby-name">Waiting...</div></div>`).join('');
+
+    const onlineFriends = getOnlineList().filter(u=>u.user_id!==p.cloudId && (p.friends||[]).includes(u.user_id) && !lobby.players.find(lp=>lp.id===u.user_id));
+
+    app.innerHTML=`<div class="wrap">
+      <div class="topnav"><button class="back" id="lobbyBack">← Leave</button><div class="crumb">Game Lobby</div></div>
+      <div class="lobby-header card-base">
+        <div class="lobby-code">Room: <strong>${lobby.code}</strong></div>
+        <div class="lobby-arena">Arena: <strong>${arenaName}</strong></div>
+        <div class="lobby-count">${humanCount} player${humanCount===1?'':'s'} + ${botCount} bot${botCount===1?'':'s'}</div>
+      </div>
+      <div class="lobby-grid">${playerCards}${botCards}${emptyCards}</div>
+      ${onlineFriends.length?`<div class="lobby-invite-section">
+        <div class="friend-label">Invite online friends</div>
+        ${onlineFriends.map(f=>`<div class="friend-row"><span class="friend-av">${f.avatar||'🧑'}</span><div class="friend-name">${f.name}</div><button class="btn buzz sm" data-lobby-invite="${f.user_id}" data-lobby-invite-name="${f.name}">Invite</button></div>`).join('')}
+      </div>`:''}
+      ${lobby.isHost?`<div class="lobby-actions">
+        <button class="btn buzz" id="lobbyStart" style="width:100%;font-size:18px;padding:16px;">Start Race (${humanCount}p + ${botCount} bots)</button>
+      </div>`:`<div class="lobby-waiting"><div class="lobby-spinner"></div>Waiting for host to start...</div>`}
+    </div>`;
+
+    app.querySelector('#lobbyBack').onclick=()=>leaveLobby();
+    if(lobby.isHost){
+      const sb=app.querySelector('#lobbyStart');
+      if(sb) sb.onclick=()=>hostStartGame();
+    }
+    app.querySelectorAll('[data-lobby-invite]').forEach(b=>b.onclick=()=>{
+      sendGameInvite(b.dataset.lobbyInvite, b.dataset.lobbyInviteName, lobby.arena);
+      // update the invite to include room code
+      if(presenceChannel){
+        presenceChannel.send({
+          type:'broadcast', event:'game_invite',
+          payload:{ from:currentPlayer().cloudId, fromName:currentPlayer().name, fromAvatar:currentPlayer().avatar, to:b.dataset.lobbyInvite, toName:b.dataset.lobbyInviteName, arena:lobby.arena, roomCode:lobby.code, timestamp:Date.now() }
+        });
+      }
+      toast('Invite sent!');
+    });
+  }
+
+  function hostStartGame(){
+    if(!lobby||!lobby.isHost) return;
+    const seed = lobby.code;
+    const arena = lobby.arena;
+    // broadcast start to all players
+    lobby.channel.send({ type:'broadcast', event:'lobby_start', payload:{ seed, arena, players:lobby.players } });
+    // start locally too
+    startLobbyRace({ seed, arena, players:lobby.players });
+  }
+
+  function startLobbyRace(config){
+    if(!lobby) return;
+    const p=currentPlayer();
+    const arena = config.arena;
+    const seed = config.seed;
+    const humanPlayers = config.players||[];
+
+    // Build deterministic deck using seed
+    function buildDeck(arenaId){
+      if(arenaId==='gauntlet'){
+        let mixed=[];
+        BANK.sheets.forEach(s=>{
+          mixed=mixed.concat(s.questions.map((qq,idx)=>({...qq,_sheet:s.name,_sid:s.id,_qidx:idx,_lines:splitClues(qq.text)})));
+        });
+        return seededShuffle(mixed, seed).slice(0,15);
+      }
+      const s=BANK.sheets.find(x=>x.id===arenaId);
+      if(!s) return [];
+      return seededShuffle(s.questions.map((qq,idx)=>({...qq,_sheet:s.name,_sid:s.id,_qidx:idx,_lines:splitClues(qq.text)})), seed).slice(0,12);
+    }
+
+    const deck = buildDeck(arena);
+    const s = BANK.sheets.find(x=>x.id===arena);
+    const rounds = [{name: arena==='gauntlet'?'Gauntlet':(s?s.name:'Race'), end:deck.length}];
+
+    // Build bot roster: fill remaining slots up to 4 minimum
+    const botsNeeded = Math.max(0, 4 - humanPlayers.length);
+    const bots = BOT_ROSTER.slice(0, botsNeeded).map(b=>({...b, score:0}));
+
+    // Mark this as a multiplayer race
+    race = {
+      arena, deck, rounds, idx:0,
+      bots,
+      me:{score:0},
+      wins:0, ramp:0,
+      revealedLines:1, phase:'reading',
+      typed:'', botBuzzed:null, botTimer:null, tickTimer:null,
+      questionStart:0, frozenUntil:0,
+      answerDeadline:0, answerTimer:null, answerLeft:0,
+      lastResult:null, beatenThisQ:0,
+      powerUsedTime:false, shieldArmed:false, doubleNext:false, slowmoThisQ:false,
+      _pbAtStart: currentPlayer().bestStreakEver||0,
+      _isMultiplayer: true,
+      _lobbyCode: lobby?lobby.code:null,
+      _humanPlayers: humanPlayers,
+    };
+
+    // clean up lobby channel but keep reference for score reporting
+    lobby.status='racing';
+    subView='race'; render();
+    beginQuestion();
+  }
+
+  // Update the invite popup to support joining lobbies
+  function showInvitePopup_v2(invite){
+    pendingInvite = invite;
+    sfx('badge'); haptic([30,50,30,50]);
+    const overlay = document.createElement('div');
+    overlay.id = 'inviteOverlay';
+    const arenaName = invite.arena==='gauntlet'?'The Gauntlet':(invite.arena&&invite.arena!=='any'?(BANK.sheets.find(s=>s.id===invite.arena)||{}).name||invite.arena:'Any arena');
+    overlay.innerHTML = `<div class="invite-card">
+      <div style="font-size:36px;text-align:center;">${invite.fromAvatar||'🧑'}</div>
+      <div class="invite-title">${invite.fromName||'Someone'} wants to play!</div>
+      <div class="invite-sub">Arena: ${arenaName}</div>
+      <div class="invite-btns">
+        <button class="invite-btn accept" id="inviteAccept">Join game</button>
+        <button class="invite-btn decline" id="inviteDecline">Not now</button>
+      </div>
+    </div>`;
+    rootEl.appendChild(overlay);
+    requestAnimationFrame(()=>requestAnimationFrame(()=>overlay.classList.add('show')));
+
+    overlay.querySelector('#inviteAccept').onclick = ()=>{
+      overlay.classList.remove('show');
+      setTimeout(()=>overlay.remove(), 350);
+      pendingInvite = null;
+      if(invite.roomCode){
+        joinLobby(invite.roomCode, invite.arena);
+      } else {
+        toast('Room not found. Ask your friend to invite again.');
+      }
+    };
+    overlay.querySelector('#inviteDecline').onclick = ()=>{
+      overlay.classList.remove('show');
+      setTimeout(()=>overlay.remove(), 350);
+      pendingInvite = null;
+    };
+    setTimeout(()=>{ if(document.getElementById('inviteOverlay')){ overlay.classList.remove('show'); setTimeout(()=>overlay.remove(),350); pendingInvite=null; } }, 30000);
+  }
+
+  function showPlayModePopup(arena, onlineFriends){
+    const arenaName = arena==='gauntlet'?'The Gauntlet':(BANK.sheets.find(s=>s.id===arena)||{}).name||arena;
+    const overlay = document.createElement('div');
+    overlay.id = 'playModeOverlay';
+    overlay.innerHTML = `<div class="invite-card">
+      <div style="font-size:28px;text-align:center;">⚔️</div>
+      <div class="invite-title">${arenaName}</div>
+      <div class="invite-sub">${onlineFriends.length} friend${onlineFriends.length===1?'':'s'} online! Play together?</div>
+      <div class="invite-btns" style="flex-direction:column;">
+        <button class="invite-btn accept" id="playOnline">Play Online (with friends)</button>
+        <button class="invite-btn decline" id="playSolo">Play Solo (vs bots)</button>
+      </div>
+    </div>`;
+    rootEl.appendChild(overlay);
+    requestAnimationFrame(()=>requestAnimationFrame(()=>overlay.classList.add('show')));
+    overlay.querySelector('#playOnline').onclick=()=>{
+      overlay.classList.remove('show'); setTimeout(()=>overlay.remove(),300);
+      createLobby(arena);
+    };
+    overlay.querySelector('#playSolo').onclick=()=>{
+      overlay.classList.remove('show'); setTimeout(()=>overlay.remove(),300);
+      startRace(arena);
+    };
   }
 
   /* ---------- NEW PLAYER ---------- */
@@ -6046,7 +6359,15 @@ window.QUESTION_BANK = {
         <div class="muted-note" style="margin-top:8px;">Pixel is gentle. Apex is brutal. They wake up as you win.</div>
       </div>
     </div>${tabBar()}`;
-    app.querySelectorAll('[data-arena]').forEach(b=>b.onclick=()=>startRace(b.dataset.arena));
+    app.querySelectorAll('[data-arena]').forEach(b=>b.onclick=()=>{
+      const arena = b.dataset.arena;
+      const onlineFriends = CLOUD_ON ? getOnlineList().filter(u=>u.user_id!==(currentPlayer().cloudId) && (currentPlayer().friends||[]).includes(u.user_id)) : [];
+      if(onlineFriends.length > 0){
+        showPlayModePopup(arena, onlineFriends);
+      } else {
+        startRace(arena);
+      }
+    });
     wireTabs();
   }
 
