@@ -3973,6 +3973,25 @@ window.QUESTION_BANK = {
   const BANK = window.QUESTION_BANK;
   const SB = window.IAC_SB;              // null if cloud unavailable
   const CLOUD_ON = !!SB;
+
+  // ===== APP VERSION & CHANGELOG =====
+  const APP_VERSION = 33;
+  const CHANGELOG = {
+    version: 33,
+    title: "What's New",
+    items: [
+      'Friend requests! Search for players and add friends from the leaderboard or Account tab.',
+      'Streak freeze: miss a day without losing your streak. Buy freezes in the Shop.',
+      'Daily goals: set how many questions you want to answer each day.',
+      'Push notifications: get daily reminders to study.',
+      'Install as an app on your phone.',
+      'XP floaters, combo streaks, screen shake, and PB celebrations.',
+    ]
+  };
+
+  // ===== FRIEND REQUEST RATE LIMITING =====
+  let lastFriendReqTime = 0;
+  const FRIEND_REQ_COOLDOWN = 60000; // 1 minute
   const SUBJECT_DESC = {
     cell:'Cells, organelles, DNA/RNA, nutrition',
     animal:'Animals, plants, taxonomy, structures',
@@ -4088,6 +4107,39 @@ window.QUESTION_BANK = {
         if(error){ console.warn('saveProfile error', error); return false; }
         return true;
       }catch(e){ console.warn('saveProfile threw', e); return false; }
+    },
+    // ---- friend requests ----
+    async searchUsers(term){
+      try{
+        const { data, error } = await SB.rpc('search_users', { search_term: term });
+        if(error){ console.warn('searchUsers error', error); return []; }
+        return data || [];
+      }catch(e){ return []; }
+    },
+    async sendFriendRequest(fromId, toId, fromName){
+      try{
+        const { error } = await SB.from('friend_requests').insert({ from_id:fromId, to_id:toId, from_name:fromName, status:'pending' });
+        if(error) return { ok:false, msg: error.message.includes('duplicate') ? 'Already sent' : error.message };
+        return { ok:true };
+      }catch(e){ return { ok:false, msg:e.message }; }
+    },
+    async getIncomingRequests(userId){
+      try{
+        const { data, error } = await SB.from('friend_requests').select('*').eq('to_id', userId).eq('status','pending');
+        return data || [];
+      }catch(e){ return []; }
+    },
+    async respondRequest(requestId, accept, myId, theirId){
+      try{
+        await SB.from('friend_requests').update({ status: accept?'accepted':'declined' }).eq('id', requestId);
+        return true;
+      }catch(e){ return false; }
+    },
+    async getAllProfiles(){
+      try{
+        const { data, error } = await SB.from('profiles').select('id,data');
+        return data || [];
+      }catch(e){ return []; }
     }
   };
 
@@ -4592,6 +4644,28 @@ window.QUESTION_BANK = {
     #iac-root .streak-live.mega{font-size:32px;color:var(--green-dk);text-shadow:0 0 8px rgba(47,125,84,.3);}
     #iac-root .pb-banner{text-align:center;padding:10px 16px;margin:8px 0;border-radius:12px;background:linear-gradient(135deg,var(--gold) 0%,var(--gold-dk) 100%);color:#fff;font-weight:900;font-size:18px;letter-spacing:0.5px;animation:pbSlide 0.6s ease-out both;text-shadow:0 1px 3px rgba(0,0,0,.2);}
     #iac-root .perfect-banner{text-align:center;padding:14px 16px;margin:10px 0;border-radius:14px;background:linear-gradient(135deg,var(--green) 0%,#1a6b3a 100%);color:#fff;font-weight:900;font-size:20px;letter-spacing:0.5px;animation:pbSlide 0.6s ease-out both;text-shadow:0 1px 3px rgba(0,0,0,.2);}
+
+    /* changelog popup */
+    #changelogOverlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;transition:opacity .3s;pointer-events:none;}
+    #changelogOverlay.show{opacity:1;pointer-events:auto;}
+    #iac-root .changelog-card{max-width:400px;width:100%;background:var(--paper);border-radius:18px;padding:22px 20px;transform:scale(.92);transition:transform .3s;}
+    #changelogOverlay.show .changelog-card{transform:scale(1);}
+    #iac-root .changelog-list{margin-bottom:16px;}
+    #iac-root .changelog-item{padding:8px 0;font-size:14px;line-height:1.45;border-bottom:0.5px solid var(--line);color:var(--ink);}
+    #iac-root .changelog-item:last-child{border-bottom:none;}
+    #iac-root .changelog-btn{width:100%;border:none;border-radius:12px;padding:13px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit;background:var(--buzz);color:#fff;}
+
+    /* friends UI */
+    #iac-root .friend-section{margin:10px 0 16px;}
+    #iac-root .friend-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px;}
+    #iac-root .friend-search-row{display:flex;gap:8px;margin-bottom:10px;}
+    #iac-root .friend-results{margin-top:6px;}
+    #iac-root .friend-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:0.5px solid var(--line);}
+    #iac-root .friend-row:last-child{border-bottom:none;}
+    #iac-root .friend-av{font-size:22px;flex-shrink:0;}
+    #iac-root .friend-name{flex:1;font-size:15px;font-weight:600;color:var(--ink);}
+    #iac-root .friend-xp{font-size:12px;font-weight:400;color:var(--muted);}
+    #iac-root .friend-actions{display:flex;gap:6px;flex-shrink:0;}
     @keyframes bobble{0%,100%{transform:translateY(0);}50%{transform:translateY(-5px);}}
     @keyframes glowPulse{0%,100%{box-shadow:0 0 0 0 rgba(214,69,31,0);}50%{box-shadow:0 0 0 4px rgba(214,69,31,.12);}}
     @media (prefers-reduced-motion: reduce){ #iac-root *{animation-duration:.01ms!important;} }
@@ -5497,6 +5571,8 @@ window.QUESTION_BANK = {
     if(note)toast(note);
     got.forEach(g=>toast(g.name,true,g.icon));
     syncOneSignalTags(p);
+    checkChangelog();
+    loadIncomingRequests();
   }
 
   // Push player data to OneSignal so notifications can be personalized
@@ -5696,6 +5772,37 @@ window.QUESTION_BANK = {
       <div class="settingrow">
         <div><div class="setname">Streak freezes</div><div class="setdesc">🧊 You have ${p.streakFreezes||0}. Protects your streak if you miss a day. Buy more in the shop.</div></div>
       </div>
+      ${CLOUD_ON?`
+      <div class="row"><div class="ttl">Friends</div></div>
+      ${incomingRequests.length?`<div class="friend-section">
+        <div class="friend-label">Friend requests (${incomingRequests.length})</div>
+        ${incomingRequests.map(r=>`<div class="friend-row">
+          <div class="friend-name">${r.from_name||'Someone'}</div>
+          <div class="friend-actions">
+            <button class="btn buzz sm" data-accept-req="${r.id}" data-from-id="${r.from_id}" data-from-name="${r.from_name||''}">Accept</button>
+            <button class="btn ghost sm" data-decline-req="${r.id}">Decline</button>
+          </div>
+        </div>`).join('')}
+      </div>`:''}
+      <div class="friend-section">
+        <div class="friend-label">Find players</div>
+        <div class="friend-search-row">
+          <input id="friendSearch" type="text" placeholder="Search by name..." value="${(friendSearchTerm||'').replace(/"/g,'&quot;')}" style="flex:1;font-size:15px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--paper-2);color:var(--ink);font-family:inherit;" />
+          <button class="btn buzz sm" id="friendSearchBtn">${friendSearchBusy?'...':'Search'}</button>
+        </div>
+        ${friendSearchResults.length?`<div class="friend-results">${friendSearchResults.map(u=>
+          `<div class="friend-row">
+            <span class="friend-av">${u.user_avatar||'🧑'}</span>
+            <div class="friend-name">${u.user_name} <span class="friend-xp">${u.user_xp} XP</span></div>
+            <button class="btn ghost sm" data-send-req="${u.user_id}" data-send-name="${u.user_name}">Add</button>
+          </div>`
+        ).join('')}</div>`:''}
+      </div>
+      ${(p.friends&&p.friends.length)?`<div class="friend-section">
+        <div class="friend-label">Your friends (${p.friends.length})</div>
+        <div class="muted-note">Friends are shown on the leaderboard with a star.</div>
+      </div>`:''}
+      `:''}
       <div class="row"><div class="ttl">Security</div></div>
       <div class="err" style="min-height:0;${acctMsg?'':'display:none;'}">${acctMsg}</div>
       <div class="acctbtns">
@@ -5712,6 +5819,17 @@ window.QUESTION_BANK = {
     app.querySelector('#logout').onclick=async ()=>{ if(CLOUD_ON){ await Cloud.signOut(); } store.lastActive=null; persist(); view='welcome'; render(); };
     const cp=app.querySelector('#changePin'); if(cp)cp.onclick=()=>changePinFlow();
     app.querySelector('#delAcct').onclick=()=>deleteAccountFlow();
+    // Friend request handlers
+    const fs=app.querySelector('#friendSearch');
+    if(fs){
+      fs.oninput=e=>{friendSearchTerm=e.target.value;};
+      fs.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); doFriendSearch(); } };
+    }
+    const fsb=app.querySelector('#friendSearchBtn');
+    if(fsb) fsb.onclick=()=>doFriendSearch();
+    app.querySelectorAll('[data-send-req]').forEach(b=>b.onclick=()=>sendFriendReq(b.dataset.sendReq, b.dataset.sendName));
+    app.querySelectorAll('[data-accept-req]').forEach(b=>b.onclick=()=>respondFriendReq(b.dataset.acceptReq, true, b.dataset.fromId, b.dataset.fromName));
+    app.querySelectorAll('[data-decline-req]').forEach(b=>b.onclick=()=>respondFriendReq(b.dataset.declineReq, false));
     wireTabs();
   }
   function deleteAccountFlow(){
@@ -6547,6 +6665,78 @@ window.QUESTION_BANK = {
   function unlockAudio(){ const ac=audio(); if(ac&&ac.state==='suspended')ac.resume(); }
   rootEl.addEventListener('pointerdown', unlockAudio, { once:true });
   applyTheme();
+
+  /* ---------- CHANGELOG / WHAT'S NEW ---------- */
+  function checkChangelog(){
+    try{
+      const seen = parseInt(localStorage.getItem('iac_changelog_seen')||'0');
+      if(seen >= APP_VERSION) return;
+      setTimeout(()=>showChangelog(), 1500);
+    }catch(e){}
+  }
+  function showChangelog(){
+    const overlay = document.createElement('div');
+    overlay.id='changelogOverlay';
+    overlay.innerHTML=`<div class="changelog-card">
+      <div style="font-size:32px;text-align:center;">🎉</div>
+      <h2 style="text-align:center;margin:6px 0 4px;font-size:20px;">${CHANGELOG.title}</h2>
+      <p style="text-align:center;color:var(--muted);font-size:13px;margin:0 0 14px;">Version ${CHANGELOG.version}</p>
+      <div class="changelog-list">${CHANGELOG.items.map(i=>'<div class="changelog-item">'+i+'</div>').join('')}</div>
+      <button class="changelog-btn" id="changelogClose">Got it!</button>
+    </div>`;
+    rootEl.appendChild(overlay);
+    requestAnimationFrame(()=>requestAnimationFrame(()=>overlay.classList.add('show')));
+    overlay.querySelector('#changelogClose').onclick=()=>{
+      overlay.classList.remove('show');
+      setTimeout(()=>overlay.remove(), 350);
+      try{ localStorage.setItem('iac_changelog_seen', String(APP_VERSION)); }catch(e){}
+    };
+  }
+
+  /* ---------- FRIENDS UI HELPERS ---------- */
+  let friendSearchResults=[], friendSearchTerm='', incomingRequests=[], friendSearchBusy=false;
+
+  async function doFriendSearch(){
+    if(!CLOUD_ON||!friendSearchTerm.trim()) return;
+    friendSearchBusy=true;
+    friendSearchResults = await Cloud.searchUsers(friendSearchTerm.trim());
+    const p=currentPlayer();
+    if(p&&p.cloudId) friendSearchResults=friendSearchResults.filter(u=>u.user_id!==p.cloudId);
+    friendSearchBusy=false;
+    renderAccount();
+  }
+
+  async function loadIncomingRequests(){
+    if(!CLOUD_ON) return;
+    const p=currentPlayer(); if(!p||!p.cloudId) return;
+    incomingRequests = await Cloud.getIncomingRequests(p.cloudId);
+  }
+
+  async function sendFriendReq(toId, toName){
+    const now=Date.now();
+    if(now-lastFriendReqTime < FRIEND_REQ_COOLDOWN){
+      const wait=Math.ceil((FRIEND_REQ_COOLDOWN-(now-lastFriendReqTime))/1000);
+      toast('Wait '+wait+'s before sending another request'); return;
+    }
+    const p=currentPlayer(); if(!p||!p.cloudId) return;
+    const result = await Cloud.sendFriendRequest(p.cloudId, toId, p.name);
+    lastFriendReqTime=Date.now();
+    if(result.ok){ sfx('coin'); toast('Friend request sent to '+toName+'!'); }
+    else { toast(result.msg||'Could not send request'); }
+  }
+
+  async function respondFriendReq(reqId, accept, fromId, fromName){
+    const p=currentPlayer(); if(!p||!p.cloudId) return;
+    const ok = await Cloud.respondRequest(reqId, accept, p.cloudId, fromId);
+    if(ok && accept){
+      if(!p.friends) p.friends=[];
+      if(!p.friends.includes(fromId)) p.friends.push(fromId);
+      persist();
+      sfx('badge'); toast(fromName+' is now your friend!');
+    } else if(ok){ toast('Request declined'); }
+    await loadIncomingRequests();
+    renderAccount();
+  }
 
   async function boot(){
     if(CLOUD_ON){
