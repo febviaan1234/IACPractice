@@ -3975,16 +3975,16 @@ window.QUESTION_BANK = {
   const CLOUD_ON = !!SB;
 
   // ===== APP VERSION & CHANGELOG =====
-  const APP_VERSION = 36;
+  const APP_VERSION = 39;
   const CHANGELOG = {
-    version: 36,
-    title: "Multiplayer is LIVE!",
+    version: 39,
+    title: "Competitive Multiplayer!",
     items: [
-      'Real-time multiplayer races! Play against friends with synchronized questions.',
-      'Live buzzing: when someone buzzes, everyone sees it instantly.',
-      'Live scoreboard during the race shows everyone\'s score.',
-      'Host controls the race, other players join and compete in real time.',
-      'Bots fill empty slots so the race always has enough competitors.',
+      'Wrong answers cost -1 point. Buzz smart, not just fast!',
+      'Pre-game settings: choose number of questions or first-to-X-points mode.',
+      'Buzz queue: if the first buzzer gets it wrong, the next person who buzzed goes.',
+      'Vote to end or add questions mid-game (all players must agree).',
+      'No power-ups in multiplayer for fair competition.',
     ]
   };
 
@@ -4730,6 +4730,8 @@ window.QUESTION_BANK = {
     #iac-root .lobby-spinner{display:inline-block;width:20px;height:20px;border:3px solid var(--line);border-top-color:var(--buzz);border-radius:50%;animation:spin 1s linear infinite;margin-right:8px;vertical-align:middle;}
     @keyframes spin{to{transform:rotate(360deg);}}
     #iac-root .lobby-invite-section{margin:12px 0;padding:12px;background:var(--paper-2);border-radius:12px;}
+    #iac-root .vote-bar{display:flex;gap:8px;margin-top:8px;justify-content:center;}
+    #iac-root .setting-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
     #iac-root .standings-mini{display:flex;flex-wrap:wrap;gap:6px;padding:8px;}
     #iac-root .standings-mini .standrow{display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--paper-2);border-radius:10px;font-size:13px;}
     #iac-root .standings-mini .standrow.me{background:color-mix(in srgb,var(--buzz) 10%,var(--paper-2));border:1px solid var(--buzz);}
@@ -5799,7 +5801,9 @@ window.QUESTION_BANK = {
     lobby = {
       code, channel:ch, arena,
       players:[{ id:p.cloudId, name:p.name, avatar:p.avatar, ready:true }],
-      isHost:true, status:'waiting'
+      isHost:true, status:'waiting',
+      settings:{ mode:'questions', target:12 },
+      votes:{ end:[], addQs:[] },
     };
 
     ch.on('broadcast', { event:'lobby_join' }, (msg)=>{
@@ -5832,7 +5836,9 @@ window.QUESTION_BANK = {
     lobby = {
       code, channel:ch, arena: arena||'any',
       players:[{ id:p.cloudId, name:p.name, avatar:p.avatar, ready:true }],
-      isHost:false, status:'waiting'
+      isHost:false, status:'waiting',
+      settings:{ mode:'questions', target:12 },
+      votes:{ end:[], addQs:[] },
     };
 
     ch.on('broadcast', { event:'lobby_state' }, (msg)=>{
@@ -5916,14 +5922,34 @@ window.QUESTION_BANK = {
         ${onlineFriends.map(f=>`<div class="friend-row"><span class="friend-av">${f.avatar||'🧑'}</span><div class="friend-name">${f.name}</div><button class="btn buzz sm" data-lobby-invite="${f.user_id}" data-lobby-invite-name="${f.name}">Invite</button></div>`).join('')}
       </div>`:''}
       ${lobby.isHost?`<div class="lobby-actions">
+        <div class="lobby-settings card-base" style="margin-bottom:12px;padding:14px;">
+          <div class="friend-label">Game settings</div>
+          <div class="setting-row">
+            <label style="font-size:14px;font-weight:600;">Play mode:</label>
+            <select id="lobbyMode" style="font-size:14px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--paper-2);color:var(--ink);font-family:inherit;">
+              <option value="questions" ${lobby.settings.mode==='questions'?'selected':''}>Set number of questions</option>
+              <option value="points" ${lobby.settings.mode==='points'?'selected':''}>First to X points</option>
+            </select>
+          </div>
+          <div class="setting-row" style="margin-top:8px;">
+            <label style="font-size:14px;font-weight:600;">${lobby.settings.mode==='points'?'Target points:':'Number of questions:'}</label>
+            <input id="lobbyTarget" type="number" min="3" max="50" value="${lobby.settings.target}" style="width:60px;font-size:16px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--paper-2);color:var(--ink);text-align:center;font-family:inherit;" />
+          </div>
+          <div class="muted-note" style="margin-top:6px;">Wrong answers: <strong>-1 point</strong> penalty</div>
+        </div>
         <button class="btn buzz" id="lobbyStart" style="width:100%;font-size:18px;padding:16px;">Start Race (${humanCount}p + ${botCount} bots)</button>
-      </div>`:`<div class="lobby-waiting"><div class="lobby-spinner"></div>Waiting for host to start...</div>`}
+      </div>`:`<div class="lobby-waiting"><div class="lobby-spinner"></div>Waiting for host to start...</div>
+      <div class="muted-note" style="text-align:center;">Mode: ${lobby.settings.mode==='points'?'First to '+lobby.settings.target+' points':lobby.settings.target+' questions'} | Wrong answers: -1 point</div>`}
     </div>`;
 
     app.querySelector('#lobbyBack').onclick=()=>leaveLobby();
     if(lobby.isHost){
       const sb=app.querySelector('#lobbyStart');
       if(sb) sb.onclick=()=>hostStartGame();
+      const modeEl=app.querySelector('#lobbyMode');
+      if(modeEl) modeEl.onchange=()=>{ lobby.settings.mode=modeEl.value; renderLobby(); };
+      const targetEl=app.querySelector('#lobbyTarget');
+      if(targetEl) targetEl.onchange=()=>{ lobby.settings.target=Math.max(3,Math.min(50,parseInt(targetEl.value)||12)); };
     }
     app.querySelectorAll('[data-lobby-invite]').forEach(b=>b.onclick=()=>{
       sendGameInvite(b.dataset.lobbyInvite, b.dataset.lobbyInviteName, lobby.arena);
@@ -5942,10 +5968,11 @@ window.QUESTION_BANK = {
     if(!lobby||!lobby.isHost) return;
     const seed = lobby.code;
     const arena = lobby.arena;
+    const settings = lobby.settings;
     // broadcast start to all players
-    lobby.channel.send({ type:'broadcast', event:'lobby_start', payload:{ seed, arena, players:lobby.players } });
+    lobby.channel.send({ type:'broadcast', event:'lobby_start', payload:{ seed, arena, players:lobby.players, settings } });
     // start locally too
-    startLobbyRace({ seed, arena, players:lobby.players });
+    startLobbyRace({ seed, arena, players:lobby.players, settings });
   }
 
   function startLobbyRace(config){
@@ -5954,22 +5981,26 @@ window.QUESTION_BANK = {
     const arena = config.arena;
     const seed = config.seed;
     const humanPlayers = config.players||[];
+    const settings = config.settings||{ mode:'questions', target:12 };
+    if(lobby.settings) Object.assign(lobby.settings, settings);
+    else lobby.settings = settings;
 
     // Build deterministic deck using seed
-    function buildDeck(arenaId){
+    function buildDeck(arenaId, maxQ){
       if(arenaId==='gauntlet'){
         let mixed=[];
         BANK.sheets.forEach(s=>{
           mixed=mixed.concat(s.questions.map((qq,idx)=>({...qq,_sheet:s.name,_sid:s.id,_qidx:idx,_lines:splitClues(qq.text)})));
         });
-        return seededShuffle(mixed, seed).slice(0,15);
+        return seededShuffle(mixed, seed).slice(0, maxQ);
       }
       const s=BANK.sheets.find(x=>x.id===arenaId);
       if(!s) return [];
-      return seededShuffle(s.questions.map((qq,idx)=>({...qq,_sheet:s.name,_sid:s.id,_qidx:idx,_lines:splitClues(qq.text)})), seed).slice(0,12);
+      return seededShuffle(s.questions.map((qq,idx)=>({...qq,_sheet:s.name,_sid:s.id,_qidx:idx,_lines:splitClues(qq.text)})), seed).slice(0, maxQ);
     }
 
-    const deck = buildDeck(arena);
+    const qCount = settings.mode==='questions' ? settings.target : 50; // points mode: use large deck
+    const deck = buildDeck(arena, qCount);
     const s = BANK.sheets.find(x=>x.id===arena);
     const rounds = [{name: arena==='gauntlet'?'Gauntlet':(s?s.name:'Race'), end:deck.length}];
 
@@ -5992,7 +6023,11 @@ window.QUESTION_BANK = {
       _pbAtStart: currentPlayer().bestStreakEver||0,
       _isMultiplayer: true,
       _lobbyCode: lobby?lobby.code:null,
-      _humanPlayers: humanPlayers,
+      _humanPlayers: humanPlayers.map(h=>({...h, score:0})),
+      _buzzQueue: [],
+      _currentBuzzer: null,
+      _settings: settings,
+      _votes: { end:new Set(), addQs:new Set() },
     };
 
     // clean up lobby channel but keep reference for score reporting
@@ -6080,11 +6115,14 @@ window.QUESTION_BANK = {
       totalQ: race.deck.length,
       phase: race.phase,
       revealedLines: race.revealedLines,
-      clueText: qq ? qq._lines.slice(0, race.revealedLines).join('\n') : '',
       answer: (race.phase==='resolved' && race.lastResult) ? qq.answer : null,
       lastResult: race.lastResult,
       scores: buildScoreboard(),
-      qText: qq ? qq.text : '',
+      bots: race.bots.map(b=>({ name:b.name, icon:b.icon, score:b.score })),
+      botBuzzed: race.botBuzzed ? { name:race.botBuzzed.name, icon:race.botBuzzed.icon } : null,
+      meScore: race.me.score,
+      answerLeft: race.answerLeft||0,
+      remoteBuzzer: race._remoteBuzzer||null,
     };
     lobby.channel.send({ type:'broadcast', event:'race_sync', payload:state });
   }
@@ -6112,14 +6150,38 @@ window.QUESTION_BANK = {
     if(!lobby||!lobby.channel) return;
 
     if(!lobby.isHost){
-      // Non-host: listen for race state broadcasts
+      // Non-host: listen for race state broadcasts and update local race object
       lobby.channel.on('broadcast', { event:'race_sync' }, (msg)=>{
-        remoteRaceState = msg.payload;
-        if(remoteRaceState.event==='end'){
-          subView='raceEnd'; renderMultiplayerEnd();
-        } else if(subView==='race'){
-          renderMultiplayerRace();
+        const rs = msg.payload;
+        if(!race) return;
+        // Sync the visual state from the host
+        race.idx = rs.idx;
+        race.phase = rs.phase;
+        race.revealedLines = rs.revealedLines;
+        race.lastResult = rs.lastResult;
+        race.answerLeft = rs.answerLeft||0;
+        race.botBuzzed = rs.botBuzzed;
+        race._remoteBuzzer = rs.remoteBuzzer;
+        // Sync bot scores
+        if(rs.bots){ rs.bots.forEach((b,i)=>{ if(race.bots[i]) race.bots[i].score=b.score; }); }
+        // Sync host's score (host is a "remote human" from non-host perspective)
+        if(race._humanPlayers){
+          const hostP = race._humanPlayers.find(h=>h.id!==currentPlayer().cloudId);
+          if(hostP) hostP.score = rs.meScore||0;
         }
+
+        if(rs.event==='end'){
+          race._standings = rs.scores.map((s,i)=>({
+            name:s.name, avatar:s.avatar, score:s.score, me:s.isMe
+          }));
+          race._myRank = (rs.scores.findIndex(s=>s.name===currentPlayer().name)||0)+1;
+          race._won = race._myRank===1;
+          race._botsBeaten = rs.scores.filter(s=>!s.isHuman && (currentPlayer().name && rs.scores.find(x=>x.isMe) && s.score < (rs.scores.find(x=>x.isMe)||{score:0}).score)).length;
+          race._bonus = 0; race._got = [];
+          subView='raceEnd';
+          if(race._won){ sfx('win'); confetti({count:120}); }else{ sfx('lose'); }
+        }
+        render();
       });
     }
 
@@ -6136,28 +6198,17 @@ window.QUESTION_BANK = {
         const d = msg.payload;
         handleRemoteAnswer(d);
       });
+      // Host: listen for votes
+      lobby.channel.on('broadcast', { event:'vote' }, (msg)=>{
+        const d = msg.payload;
+        processVote(d.action, d.playerId, d.playerName);
+      });
     }
   }
 
   function handleRemoteBuzz(data){
     if(!race || race.phase!=='reading') return;
-    // Remote player buzzed first — they get to answer
-    clearRaceTimers();
-    race.phase='answering';
-    race._remoteBuzzer = data;
-    race.answerLeft = 10;
-    sfx('buzz');
-    broadcastRaceState('remote_buzz');
-    render();
-    // Give them 10 seconds to answer
-    race.answerTimer = setInterval(()=>{
-      race.answerLeft--;
-      if(race.answerLeft<=0){
-        clearInterval(race.answerTimer); race.answerTimer=null;
-        // timed out — treat as wrong
-        resolveRemoteAnswer(false, data, '(timed out)');
-      }
-    }, 1000);
+    addToBuzzQueue({ type:'remote', playerId:data.playerId, playerName:data.playerName, playerAvatar:data.playerAvatar, timestamp:data.timestamp||Date.now() });
   }
 
   function handleRemoteAnswer(data){
@@ -6170,24 +6221,35 @@ window.QUESTION_BANK = {
 
   function resolveRemoteAnswer(correct, data, theirAnswer){
     const qq = race.deck[race.idx];
-    race.phase='resolved';
     // update the remote player's score
     if(race._humanPlayers){
       const hp = race._humanPlayers.find(h=>h.id===data.playerId);
-      if(hp){
-        if(correct){ hp.score = (hp.score||0)+1; }
+      if(hp && correct){ hp.score = (hp.score||0)+1; }
+    }
+    if(correct){
+      race.phase='resolved';
+      race.lastResult = { who:'remote', remoteName:data.playerName, answer:qq.answer, theirAnswer };
+      race._currentBuzzer=null; race._buzzQueue=[];
+      sfx('correct');
+      broadcastRaceState('resolved');
+      persist(); render();
+    } else {
+      // Wrong: -1 penalty for the remote player
+      if(race._humanPlayers){
+        const hp = race._humanPlayers.find(h=>h.id===data.playerId);
+        if(hp) hp.score = Math.max(-99, (hp.score||0) - 1);
+      }
+      sfx('wrong');
+      race._currentBuzzer=null;
+      race._remoteBuzzer=null;
+      // If more buzzers in queue, give them a chance
+      if(race._buzzQueue && race._buzzQueue.length>0){
+        processNextBuzzer();
+      } else {
+        // No more buzzers — resume reading or resolve
+        processNextBuzzer(); // will handle the empty queue case
       }
     }
-    race.lastResult = {
-      who: correct ? 'remote' : 'wrong',
-      remoteName: data.playerName,
-      answer: qq.answer,
-      theirAnswer,
-    };
-    race._remoteBuzzer = null;
-    if(correct) sfx('correct'); else sfx('wrong');
-    broadcastRaceState('resolved');
-    persist(); render();
   }
 
   // Non-host: render race from received state
@@ -6628,6 +6690,7 @@ window.QUESTION_BANK = {
     const qq=race.deck[race.idx];
     race.revealedLines=1; race.phase='reading'; race.typed=''; race.botBuzzed=null;
     race.lastResult=null; race.beatenThisQ=0; race.powerUsedTime=false; race.slowmoThisQ=false;
+    if(race._isMultiplayer){ race._buzzQueue=[]; race._currentBuzzer=null; race._remoteBuzzer=null; }
     race.questionStart=Date.now();
     clearRaceTimers();
     // decide each bot's plan for THIS question (which clue they'll pounce on, and if they know it)
@@ -6686,20 +6749,37 @@ window.QUESTION_BANK = {
   }
 
   function botTakesQuestion(bot){
+    // Multiplayer: bots go through the buzz queue like everyone else
+    if(race._isMultiplayer){
+      addToBuzzQueue({ type:'bot', botName:bot.name, botIcon:bot.icon, timestamp:Date.now() });
+      return;
+    }
     clearRaceTimers();
     const qq=race.deck[race.idx];
     bot.score+=1;
     race.phase='resolved';
     race.lastResult={ who:'bot', bot, answer:qq.answer };
-    // update YOUR mastery softly: a bot stealing it means you didn't know it fast -> mark shaky if unseen
     sfx('lose'); haptic([20,30,20]);
     render();
   }
 
-  // Step 1: player hits BUZZ — claim the question, freeze bots, start a 10s answer timer
+  // Step 1: player hits BUZZ
   function playerBuzz(){
     if(race.phase!=='reading')return;
-    clearRaceTimers();                 // stop bot buzz + clue auto-reveal
+    // Multiplayer non-host: send buzz to host
+    if(race._isMultiplayer && lobby && !lobby.isHost){
+      sfx('buzz');
+      lobby.channel.send({ type:'broadcast', event:'remote_buzz', payload:{ playerId:currentPlayer().cloudId, playerName:currentPlayer().name, playerAvatar:currentPlayer().avatar, timestamp:Date.now() }});
+      return;
+    }
+    // Multiplayer host: add self to buzz queue
+    if(race._isMultiplayer){
+      const p=currentPlayer();
+      addToBuzzQueue({ type:'host', playerId:p.cloudId, playerName:p.name, timestamp:Date.now() });
+      return;
+    }
+    // Solo: existing behavior
+    clearRaceTimers();
     sfx('buzz');
     race.phase='answering';
     race.answerLeft=10;
@@ -6713,9 +6793,105 @@ window.QUESTION_BANK = {
     const inp=app.querySelector('#raceans'); if(inp)inp.focus();
   }
 
-  // Step 2: grade what was typed (called on Enter/Lock-in, or auto when the 10s runs out)
+  /* --- MULTIPLAYER BUZZ QUEUE --- */
+  function addToBuzzQueue(entry){
+    if(!race._buzzQueue) race._buzzQueue=[];
+    // prevent double-buzz from same player
+    if(race._buzzQueue.find(b=>b.playerId===entry.playerId)) return;
+    race._buzzQueue.push(entry);
+    // If this is the first buzz, process it
+    if(race._buzzQueue.length===1 && race.phase==='reading'){
+      processNextBuzzer();
+    }
+  }
+
+  function processNextBuzzer(){
+    if(!race._buzzQueue || race._buzzQueue.length===0){
+      // No more buzzers — resume reading if clues remain, else resolve with answer
+      race._currentBuzzer=null;
+      race._remoteBuzzer=null;
+      const qq=race.deck[race.idx];
+      if(race.revealedLines < qq._lines.length){
+        // Resume reading — more clues to show
+        race.phase='reading';
+        scheduleBotBuzz();
+        broadcastRaceState('resume');
+        render();
+      } else {
+        // All clues shown, nobody got it — show answer and move on
+        race.phase='resolved';
+        race.lastResult={ who:'nobody', answer:qq.answer };
+        sfx('wrong');
+        broadcastRaceState('resolved');
+        render();
+      }
+      return;
+    }
+
+    clearRaceTimers();
+    const buzzer = race._buzzQueue.shift();
+    race._currentBuzzer = buzzer;
+    sfx('buzz');
+
+    if(buzzer.type==='bot'){
+      // Bots always get it right (they only buzz when they know)
+      const bot = race.bots.find(b=>b.name===buzzer.botName);
+      if(bot) bot.score+=1;
+      race.phase='resolved';
+      race.lastResult={ who:'bot', bot:bot||{name:buzzer.botName,icon:buzzer.botIcon}, answer:race.deck[race.idx].answer };
+      race._currentBuzzer=null;
+      race._buzzQueue=[];
+      broadcastRaceState('resolved');
+      render();
+      return;
+    }
+
+    if(buzzer.type==='host'){
+      // Host answers locally
+      race.phase='answering';
+      race._remoteBuzzer=null;
+      race.typed='';
+      race.answerLeft=10;
+      race.answerDeadline=Date.now()+10000;
+      race.answerTimer=setInterval(()=>{
+        const left=Math.ceil((race.answerDeadline-Date.now())/1000);
+        if(left!==race.answerLeft){ race.answerLeft=Math.max(0,left); if(left<=3&&left>0)sfx('tick'); updateAnswerTimerUI(); }
+        if(Date.now()>=race.answerDeadline){ clearInterval(race.answerTimer); race.answerTimer=null; confirmAnswer(true); }
+      }, 200);
+      broadcastRaceState('player_buzz');
+      render();
+      const inp=app.querySelector('#raceans'); if(inp)inp.focus();
+      return;
+    }
+
+    if(buzzer.type==='remote'){
+      // Remote player answers
+      race.phase='answering';
+      race._remoteBuzzer = buzzer;
+      race.answerLeft=10;
+      race.answerTimer=setInterval(()=>{
+        race.answerLeft--;
+        broadcastRaceState('timer');
+        if(race.answerLeft<=0){
+          clearInterval(race.answerTimer); race.answerTimer=null;
+          resolveRemoteAnswer(false, buzzer, '(timed out)');
+        }
+      }, 1000);
+      broadcastRaceState('remote_buzz');
+      render();
+      return;
+    }
+  }
+
+  // Step 2: grade what was typed
   function confirmAnswer(timedOut){
     if(race.phase!=='answering')return;
+    // Multiplayer non-host: send answer to host
+    if(race._isMultiplayer && lobby && !lobby.isHost){
+      const typed=(race.typed||'').trim();
+      lobby.channel.send({ type:'broadcast', event:'remote_answer', payload:{ playerId:currentPlayer().cloudId, playerName:currentPlayer().name, answer:typed }});
+      return;
+    }
     clearRaceTimers();
     const qq=race.deck[race.idx]; const typed=(race.typed||'').trim();
     const p=currentPlayer();
@@ -6724,7 +6900,7 @@ window.QUESTION_BANK = {
       race.me.score+=1; race.wins+=1; race.ramp+=1;
       const early=race.revealedLines<qq._lines.length;
       let coins = 5 + (early?3:0) + Math.floor(race.ramp/3);
-      if(race.doubleNext){ coins*=2; race.doubleNext=false; }
+      if(!race._isMultiplayer && race.doubleNext){ coins*=2; race.doubleNext=false; }
       addCoins(p, coins);
       updateMastery(p, qq._sid, qq._qidx, true, early?1:2);
       race.lastResult={ who:'me', answer:qq.answer, coins, early };
@@ -6732,6 +6908,7 @@ window.QUESTION_BANK = {
       floatXP('+'+coins+' 🪙', true);
       if(race.wins>=2) comboOverlay(race.wins);
       touchDailyGoal(p);
+      race._currentBuzzer=null; race._buzzQueue=[];
       persist(); broadcastRaceState('resolved'); render();
     } else if(race.shieldArmed){
       // shield absorbs the miss: no point lost, no bot scoop, retry-free skip
@@ -6741,11 +6918,27 @@ window.QUESTION_BANK = {
       sfx('tap'); toast('🛡️ Shield saved you');
       persist(); render();
     } else {
+      // Multiplayer: if wrong, give next buzzer a chance
+      if(race._isMultiplayer && race._buzzQueue && race._buzzQueue.length>0){
+        race.me.score = Math.max(-99, race.me.score - 1); // -1 penalty
+        updateMastery(p, qq._sid, qq._qidx, false, 2);
+        sfx('wrong'); screenShake();
+        floatXP('-1', false);
+        race._currentBuzzer=null;
+        processNextBuzzer();
+        return;
+      }
+      if(race._isMultiplayer){
+        race.me.score = Math.max(-99, race.me.score - 1); // -1 penalty
+        floatXP('-1', false);
+      }
       race.phase='resolved';
       updateMastery(p, qq._sid, qq._qidx, false, 2);
       const ramp=race.ramp; let taker=null;
-      race.bots.forEach(b=>{ const pr=botParams(b,ramp); if(Math.random()<pr.acc+0.1){ if(!taker||Math.random()<0.5)taker=b; } });
-      if(taker)taker.score+=1;
+      if(!race._isMultiplayer){
+        race.bots.forEach(b=>{ const pr=botParams(b,ramp); if(Math.random()<pr.acc+0.1){ if(!taker||Math.random()<0.5)taker=b; } });
+        if(taker)taker.score+=1;
+      }
       race.lastResult={ who:'wrong', answer:qq.answer, taker, timedOut:!!timedOut };
       sfx('wrong'); screenShake();
       persist(); broadcastRaceState('resolved'); render();
@@ -6836,8 +7029,55 @@ window.QUESTION_BANK = {
 
   function raceNext(){
     race.idx++;
+    // Check points-mode win condition
+    if(race._isMultiplayer && race._settings && race._settings.mode==='points'){
+      const target = race._settings.target;
+      const allScores = [race.me.score, ...race.bots.map(b=>b.score), ...(race._humanPlayers||[]).map(h=>h.score||0)];
+      if(allScores.some(s=>s>=target)){ finishRace(); return; }
+    }
     if(race.idx>=race.deck.length){ finishRace(); return; }
     beginQuestion();
+  }
+
+  // Collective voting system
+  function voteAction(action){
+    if(!race._isMultiplayer || !lobby || !lobby.channel) return;
+    const p = currentPlayer();
+    lobby.channel.send({ type:'broadcast', event:'vote', payload:{ action, playerId:p.cloudId, playerName:p.name }});
+    if(lobby.isHost) processVote(action, p.cloudId, p.name);
+  }
+
+  function processVote(action, playerId, playerName){
+    if(!race._votes) race._votes={ end:new Set(), addQs:new Set() };
+    if(action==='end') race._votes.end.add(playerId);
+    if(action==='addQs') race._votes.addQs.add(playerId);
+    const humanCount = (race._humanPlayers||[]).length;
+    // Check if all humans agreed
+    if(action==='end' && race._votes.end.size >= humanCount){
+      toast('All players agreed to end the game!');
+      finishRace();
+    } else if(action==='addQs' && race._votes.addQs.size >= humanCount){
+      // Add 5 more questions from the deck
+      const arena = race.arena;
+      const moreDeck = seededShuffle(
+        BANK.sheets.find(x=>x.id===arena)
+          ? BANK.sheets.find(x=>x.id===arena).questions.map((qq,idx)=>({...qq,_sheet:BANK.sheets.find(x=>x.id===arena).name,_sid:arena,_qidx:idx,_lines:splitClues(qq.text)}))
+          : [],
+        lobby.code+race.deck.length
+      ).slice(0,5);
+      race.deck = race.deck.concat(moreDeck);
+      race.rounds[0].end = race.deck.length;
+      race._votes.addQs = new Set();
+      toast('5 more questions added!');
+      broadcastRaceState('update');
+      render();
+    } else {
+      const needed = humanCount;
+      const have = action==='end' ? race._votes.end.size : race._votes.addQs.size;
+      toast(playerName+' voted to '+(action==='end'?'end the game':'add questions')+' ('+have+'/'+needed+')');
+      broadcastRaceState('vote_update');
+      render();
+    }
   }
 
   function finishRace(){
@@ -6845,7 +7085,8 @@ window.QUESTION_BANK = {
     const p=currentPlayer();
     // standings
     const standings=[{name:p.name,avatar:p.avatar,score:race.me.score,me:true}]
-      .concat(race.bots.map(b=>({name:b.name,avatar:b.avatar,score:b.score,me:false})))
+      .concat(race.bots.map(b=>({name:b.name,avatar:b.icon||b.avatar,score:b.score,me:false})))
+      .concat((race._humanPlayers||[]).filter(h=>h.id!==p.cloudId).map(h=>({name:h.name,avatar:h.avatar,score:h.score||0,me:false,isHuman:true})))
       .sort((a,b)=>b.score-a.score);
     const myRank=standings.findIndex(s=>s.me)+1;
     const botsBeaten=race.bots.filter(b=>race.me.score>b.score).length;
@@ -6905,6 +7146,7 @@ window.QUESTION_BANK = {
     let resolveHtml='', actionsHtml='';
     // power-up bar builder (shared) — shows owned power-ups relevant to the phase
     function powerbar(phase){
+      if(race._isMultiplayer) return ''; // no power-ups in multiplayer
       const pu=p.powerups;
       const armedT = (race.shieldArmed?' 🛡️':'')+(race.doubleNext?' ✨':'');
       const defs=[
@@ -6941,15 +7183,25 @@ window.QUESTION_BANK = {
         const lead = r.timedOut ? 'Time ran out' : 'Wrong — locked out';
         resolveHtml=`<div class="reveal wrong"><div class="v">${lead}</div><div class="ans">${qq.answer}</div><div class="scored" style="color:var(--buzz-dk)">${r.taker?r.taker.name+' scoops it':'No one got it'}</div></div>`;
       }
-      actionsHtml=`${powerbar('resolved')}<div class="actions"><button class="btn next" id="rnext">${race.idx+1<race.deck.length?'Next question →':'See standings →'}</button></div>`;
+      actionsHtml=`${powerbar('resolved')}<div class="actions"><button class="btn next" id="rnext">${race.idx+1<race.deck.length?'Next question →':'See standings →'}</button></div>
+      ${race._isMultiplayer?`<div class="vote-bar"><button class="btn ghost sm" id="voteEnd">Vote to end game</button><button class="btn ghost sm" id="voteAdd">Vote to add questions</button></div>`:''}`;
     } else if(race.phase==='answering'){
-      actionsHtml=`
-        <div class="answerclock-wrap"><div class="answerclock-row"><span>Your buzz — answer fast!</span><span class="answerclock" id="answerclock">${race.answerLeft}s</span></div>
-          <div class="answerring-track"><div class="answerring" id="answerring" style="width:${race.answerLeft/10*100}%"></div></div></div>
-        <div class="answerbox"><input id="raceans" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type your answer and hit Enter…" value="${(race.typed||'').replace(/"/g,'&quot;')}" /></div>
-        <div class="actions"><button class="btn buzz" id="rlock">Lock in answer</button></div>
-        ${powerbar('answering')}
-        <div class="hint">You buzzed! Bots are paused${race.shieldArmed?' · 🛡️ shield armed':''}. Lock in before the timer hits zero.</div>`;
+      // Multiplayer: check if someone else is answering
+      const isRemoteAnswering = race._isMultiplayer && race._remoteBuzzer && race._remoteBuzzer.playerId !== (currentPlayer().cloudId);
+      const isMyRemoteBuzz = race._isMultiplayer && race._remoteBuzzer && race._remoteBuzzer.playerId === (currentPlayer().cloudId);
+      if(isRemoteAnswering){
+        actionsHtml=`<div class="answerclock-wrap"><div class="answerclock-row"><span>${race._remoteBuzzer.playerName||'Someone'} buzzed! Answering...</span><span class="answerclock">${race.answerLeft}s</span></div>
+          <div class="answerring-track"><div class="answerring" style="width:${race.answerLeft/10*100}%"></div></div></div>`;
+      } else {
+        const buzzLabel = isMyRemoteBuzz ? 'Your buzz!' : 'Your buzz!';
+        actionsHtml=`
+          <div class="answerclock-wrap"><div class="answerclock-row"><span>${buzzLabel} Answer fast!</span><span class="answerclock" id="answerclock">${race.answerLeft}s</span></div>
+            <div class="answerring-track"><div class="answerring" id="answerring" style="width:${race.answerLeft/10*100}%"></div></div></div>
+          <div class="answerbox"><input id="raceans" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type your answer and hit Enter..." value="${(race.typed||'').replace(/"/g,'&quot;')}" /></div>
+          <div class="actions"><button class="btn buzz" id="rlock">Lock in answer</button></div>
+          ${powerbar('answering')}
+          <div class="hint">You buzzed! Bots are paused${race.shieldArmed?' · shield armed':''}. Lock in before the timer hits zero.</div>`;
+      }
     } else {
       const nextClueNote = hidden>0 ? `Next clue auto-reveals soon · ${hidden} still hidden` : 'All clues are out — buzz when ready!';
       actionsHtml=`
@@ -6963,12 +7215,12 @@ window.QUESTION_BANK = {
       <div class="topnav"><button class="back" id="rquit">← Leave race</button><div class="crumb"><b>${currentRoundName()}</b> · ramp ${race.ramp}</div></div>
       <div class="barwrap"><div class="bar" style="width:${progress}%"></div></div>
       <div class="lineup">${lineHtml}</div>
-      <div class="card"><div class="head"><div class="pace">Q ${race.idx+1}/${race.deck.length} · line ${Math.min(race.revealedLines,total)}/${total}</div>${frozen?'<span class="chip strong">FROZEN</span>':race.phase==='answering'?'<span class="chip weak">YOUR BUZZ</span>':''}</div>
+      <div class="card"><div class="head"><div class="pace">Q ${race.idx+1}/${race.deck.length} · line ${Math.min(race.revealedLines,total)}/${total}</div>${frozen?'<span class="chip strong">FROZEN</span>':race.phase==='answering'?(race._remoteBuzzer&&race._remoteBuzzer.playerId!==currentPlayer().cloudId?'<span class="chip">'+(race._remoteBuzzer.playerName||'Someone')+'\'s BUZZ</span>':'<span class="chip weak">YOUR BUZZ</span>'):''}</div>
         <div class="clues">${cluesHtml}</div>
         ${(race.phase==='reading'&&hidden>0)?`<div class="hiddencount">${hidden} more clue${hidden>1?'s':''} hidden…</div>`:''}
         ${resolveHtml}${actionsHtml}</div>
     </div>`;
-    app.querySelector('#rquit').onclick=()=>{ clearRaceTimers(); subView=null; activeTab='play'; render(); };
+    app.querySelector('#rquit').onclick=()=>{ clearRaceTimers(); if(race._isMultiplayer)leaveLobby(); subView=null; activeTab='play'; render(); };
     const inp=app.querySelector('#raceans');
     if(inp){
       inp.oninput=e=>race.typed=e.target.value;
@@ -6977,6 +7229,8 @@ window.QUESTION_BANK = {
     const rb=app.querySelector('#rbuzz'); if(rb)rb.onclick=playerBuzz;
     const rl=app.querySelector('#rlock'); if(rl)rl.onclick=()=>confirmAnswer(false);
     const rn=app.querySelector('#rnext'); if(rn)rn.onclick=raceNext;
+    const ve=app.querySelector('#voteEnd'); if(ve)ve.onclick=()=>voteAction('end');
+    const va=app.querySelector('#voteAdd'); if(va)va.onclick=()=>voteAction('addQs');
     wirePowers();
   }
 
