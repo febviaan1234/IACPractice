@@ -3975,17 +3975,16 @@ window.QUESTION_BANK = {
   const CLOUD_ON = !!SB;
 
   // ===== APP VERSION & CHANGELOG =====
-  const APP_VERSION = 33;
+  const APP_VERSION = 34;
   const CHANGELOG = {
-    version: 33,
+    version: 34,
     title: "What's New",
     items: [
-      'Friend requests! Search for players and add friends from the leaderboard or Account tab.',
-      'Streak freeze: miss a day without losing your streak. Buy freezes in the Shop.',
-      'Daily goals: set how many questions you want to answer each day.',
-      'Push notifications: get daily reminders to study.',
-      'Install as an app on your phone.',
-      'XP floaters, combo streaks, screen shake, and PB celebrations.',
+      'See who is online! Green dots show active players on the leaderboard.',
+      'Invite friends to play! Tap "Play" next to an online friend to send them a game invite.',
+      'Three leaderboard tabs: Friends, This Week, and All Time.',
+      'Friend requests: search for players and add friends from the Account tab.',
+      'Weekly XP tracking resets every Monday for fresh competition.',
     ]
   };
 
@@ -4688,6 +4687,27 @@ window.QUESTION_BANK = {
     #iac-root .friend-name{flex:1;font-size:15px;font-weight:600;color:var(--ink);}
     #iac-root .friend-xp{font-size:12px;font-weight:400;color:var(--muted);}
     #iac-root .friend-actions{display:flex;gap:6px;flex-shrink:0;}
+
+    /* online indicators */
+    #iac-root .online-dot{position:absolute;bottom:-1px;right:-1px;width:10px;height:10px;border-radius:50%;background:#22c55e;border:2px solid var(--paper);display:block;}
+    #iac-root .lbav{position:relative;display:inline-block;}
+    #iac-root .online-tag{font-size:10px;font-weight:700;color:#22c55e;text-transform:uppercase;letter-spacing:.05em;}
+    #iac-root .invite-play{font-size:11px;padding:5px 10px;margin-right:4px;}
+
+    /* invite popup */
+    #inviteOverlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;transition:opacity .3s;pointer-events:none;}
+    #inviteOverlay.show{opacity:1;pointer-events:auto;}
+    #iac-root .invite-card,#inviteOverlay .invite-card{max-width:360px;width:100%;background:#fff;border-radius:18px;padding:24px 20px;text-align:center;transform:scale(.9);transition:transform .3s;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;}
+    #inviteOverlay.show .invite-card{transform:scale(1);}
+    @media(prefers-color-scheme:dark){#inviteOverlay .invite-card{background:#2a2a28;color:#f0ead8;}}
+    .invite-title{font-size:20px;font-weight:800;margin:8px 0 4px;}
+    .invite-sub{font-size:14px;color:#6f6553;margin-bottom:16px;}
+    .invite-btns{display:flex;gap:10px;}
+    .invite-btn{flex:1;border:none;border-radius:12px;padding:13px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:transform .1s;}
+    .invite-btn:active{transform:scale(.97);}
+    .invite-btn.accept{background:#d6451f;color:#fff;}
+    .invite-btn.decline{background:rgba(0,0,0,.06);color:#6f6553;}
+    @media(prefers-color-scheme:dark){.invite-btn.decline{background:rgba(255,255,255,.1);color:#a8a090;}}
     @keyframes bobble{0%,100%{transform:translateY(0);}50%{transform:translateY(-5px);}}
     @keyframes glowPulse{0%,100%{box-shadow:0 0 0 0 rgba(214,69,31,0);}50%{box-shadow:0 0 0 4px rgba(214,69,31,.12);}}
     @media (prefers-reduced-motion: reduce){ #iac-root *{animation-duration:.01ms!important;} }
@@ -5595,6 +5615,7 @@ window.QUESTION_BANK = {
     syncOneSignalTags(p);
     checkChangelog();
     loadIncomingRequests();
+    joinPresence();
   }
 
   // Push player data to OneSignal so notifications can be personalized
@@ -5611,6 +5632,116 @@ window.QUESTION_BANK = {
         });
       }
     }catch(e){}
+  }
+
+  /* =========================================================
+     ONLINE PRESENCE + INVITES (Supabase Realtime)
+     Phase 1: see who's online, invite friends to play
+     ========================================================= */
+  let onlineUsers = {};  // { odid: { user_id, name, avatar, online_at } }
+  let presenceChannel = null;
+  let pendingInvite = null; // incoming invite popup
+
+  function onlineCount(){ return Object.keys(onlineUsers).length; }
+  function isUserOnline(userId){ return Object.values(onlineUsers).some(u=>u.user_id===userId); }
+  function getOnlineList(){ return Object.values(onlineUsers); }
+
+  function joinPresence(){
+    if(!CLOUD_ON || presenceChannel) return;
+    const p = currentPlayer(); if(!p||!p.cloudId) return;
+    presenceChannel = SB.channel('iac-online', { config: { presence: { key: p.cloudId } } });
+
+    presenceChannel
+      .on('presence', { event:'sync' }, ()=>{
+        const state = presenceChannel.presenceState();
+        onlineUsers = {};
+        Object.entries(state).forEach(([key, presences])=>{
+          if(presences && presences.length>0){
+            onlineUsers[key] = presences[0];
+          }
+        });
+        // refresh UI if on a screen that shows online status
+        if(activeTab==='ranks' || activeTab==='account') render();
+      })
+      .on('broadcast', { event:'game_invite' }, (payload)=>{
+        const msg = payload.payload;
+        if(!msg || msg.to !== currentPlayer().cloudId) return;
+        showInvitePopup(msg);
+      })
+      .subscribe(async (status)=>{
+        if(status==='SUBSCRIBED'){
+          await presenceChannel.track({
+            user_id: p.cloudId,
+            name: p.name,
+            avatar: p.avatar,
+            online_at: new Date().toISOString(),
+          });
+        }
+      });
+  }
+
+  function leavePresence(){
+    if(presenceChannel){
+      presenceChannel.untrack();
+      SB.removeChannel(presenceChannel);
+      presenceChannel = null;
+      onlineUsers = {};
+    }
+  }
+
+  // Send a game invite to a friend
+  async function sendGameInvite(toId, toName, arena){
+    if(!presenceChannel) return;
+    const p = currentPlayer();
+    await presenceChannel.send({
+      type: 'broadcast',
+      event: 'game_invite',
+      payload: {
+        from: p.cloudId,
+        fromName: p.name,
+        fromAvatar: p.avatar,
+        to: toId,
+        toName: toName,
+        arena: arena || 'any',
+        timestamp: Date.now(),
+      }
+    });
+    sfx('coin');
+    toast('Invite sent to ' + toName + '!');
+  }
+
+  // Show incoming invite popup
+  function showInvitePopup(invite){
+    pendingInvite = invite;
+    sfx('badge'); haptic([30,50,30,50]);
+    const overlay = document.createElement('div');
+    overlay.id = 'inviteOverlay';
+    overlay.innerHTML = `<div class="invite-card">
+      <div style="font-size:36px;text-align:center;">${invite.fromAvatar||'🧑'}</div>
+      <div class="invite-title">${invite.fromName||'Someone'} wants to play!</div>
+      <div class="invite-sub">${invite.arena&&invite.arena!=='any'?'Arena: '+invite.arena:'Any arena'}</div>
+      <div class="invite-btns">
+        <button class="invite-btn accept" id="inviteAccept">Join game</button>
+        <button class="invite-btn decline" id="inviteDecline">Not now</button>
+      </div>
+    </div>`;
+    rootEl.appendChild(overlay);
+    requestAnimationFrame(()=>requestAnimationFrame(()=>overlay.classList.add('show')));
+
+    overlay.querySelector('#inviteAccept').onclick = ()=>{
+      overlay.classList.remove('show');
+      setTimeout(()=>overlay.remove(), 350);
+      // Phase 2 will start a real multiplayer game here
+      toast('Multiplayer lobby coming soon! For now, start a race in ' + (invite.arena||'any arena') + '.');
+      pendingInvite = null;
+    };
+    overlay.querySelector('#inviteDecline').onclick = ()=>{
+      overlay.classList.remove('show');
+      setTimeout(()=>overlay.remove(), 350);
+      pendingInvite = null;
+    };
+    // auto-dismiss after 30s
+    setTimeout(()=>{ if(document.getElementById('inviteOverlay')){ overlay.classList.remove('show'); setTimeout(()=>overlay.remove(),350); pendingInvite=null; } }, 30000);
   }
 
   /* ---------- NEW PLAYER ---------- */
@@ -5838,7 +5969,7 @@ window.QUESTION_BANK = {
     </div>${tabBar()}`;
     app.querySelector('#muteToggle').onclick=()=>{ toggleMute(); renderAccount(); };
     const gs=app.querySelector('#goalSelect'); if(gs)gs.onchange=()=>{ const p=currentPlayer(); p.dailyGoal=parseInt(gs.value)||10; persist(); renderAccount(); };
-    app.querySelector('#logout').onclick=async ()=>{ if(CLOUD_ON){ await Cloud.signOut(); } store.lastActive=null; persist(); view='welcome'; render(); };
+    app.querySelector('#logout').onclick=async ()=>{ leavePresence(); if(CLOUD_ON){ await Cloud.signOut(); } store.lastActive=null; persist(); view='welcome'; render(); };
     const cp=app.querySelector('#changePin'); if(cp)cp.onclick=()=>changePinFlow();
     app.querySelector('#delAcct').onclick=()=>deleteAccountFlow();
     // Friend request handlers
@@ -6402,15 +6533,17 @@ window.QUESTION_BANK = {
       const place = i+1;
       const medal = place===1?'🥇':place===2?'🥈':place===3?'🥉':`<span class="rk">${place}</span>`;
       const isFriend = (me.friends||[]).includes(p.id);
+      const online = isUserOnline(p.id);
       const friendBtn = isMe ? '' : `<button class="frbtn ${isFriend?'on':''}" data-friend="${p.id}">${isFriend?'★':'☆'}</button>`;
+      const inviteBtn = (!isMe && online && isFriend) ? `<button class="btn buzz sm invite-play" data-invite="${p.id}" data-invite-name="${p.name||'Player'}">Play</button>` : '';
       const {cur} = rankFor(p.xp||0);
       const xpVal = (ranksTab==='week') ? (p.weekOf===w ? p.weekXp||0 : 0) : (p.xp||0);
       return `<div class="lbrow ${isMe?'me':''} ${place<=3?'top':''}">
         <div class="lbplace">${medal}</div>
-        <div class="lbav">${p.avatar||'🧑'}</div>
-        <div class="lbinfo"><div class="lbn">${p.name||'Player'}${isMe?' <span class="youtag">you</span>':''}</div><div class="lbsub">Lv ${cur.lvl} · ${cur.title}</div></div>
+        <div class="lbav">${p.avatar||'🧑'}${online?'<span class="online-dot"></span>':''}</div>
+        <div class="lbinfo"><div class="lbn">${p.name||'Player'}${isMe?' <span class="youtag">you</span>':''}${online&&!isMe?' <span class="online-tag">online</span>':''}</div><div class="lbsub">Lv ${cur.lvl} · ${cur.title}</div></div>
         <div class="lbxp">${xpVal.toLocaleString()}<span class="lbxpk">XP</span></div>
-        ${friendBtn}
+        ${inviteBtn}${friendBtn}
       </div>`;
     }).join('');
 
@@ -6423,7 +6556,7 @@ window.QUESTION_BANK = {
 
     app.innerHTML=`<div class="wrap">
       <div class="eyebrow">Leaderboard</div>
-      <div class="row" style="margin-top:6px;"><h1 style="font-size:26px;">The <span class="b">Ranks</span></h1><span class="coinpill">${cloudLbPlayers.length} player${cloudLbPlayers.length===1?'':'s'}</span></div>
+      <div class="row" style="margin-top:6px;"><h1 style="font-size:26px;">The <span class="b">Ranks</span></h1><span class="coinpill">${cloudLbPlayers.length} player${cloudLbPlayers.length===1?'':'s'}${onlineCount()>0?' · <span class="online-tag">'+onlineCount()+' online</span>':''}</span></div>
       <p class="sub">Ranked by ${sortLabel}. Real players only. ${cloudLbLoading?'Loading...':''}</p>
       <div class="modes" style="margin-top:14px;">${tabs}</div>
       ${emptyMsg
@@ -6437,6 +6570,9 @@ window.QUESTION_BANK = {
       const i=f.indexOf(id);
       if(i>=0){ f.splice(i,1); sfx('tap'); } else { f.push(id); sfx('coin'); }
       me.friends=f; persist(); renderRanks();
+    });
+    app.querySelectorAll('[data-invite]').forEach(b=>b.onclick=()=>{
+      sendGameInvite(b.dataset.invite, b.dataset.inviteName);
     });
     wireTabs();
   }
