@@ -4437,7 +4437,7 @@ window.QUESTION_BANK = {
       totalAnswered:0, totalCorrect:0, earlyHits:0, bestStreakEver:0,
       streakDays:0, lastStudied:null, badges:{}, mastery:{},
       coins:0, owned:{}, powerups:{ time:0, fifty:0, freeze:0, shield:0, double:0, hint:0, steal:0, slowmo:0 }, bestRace:0, racesWon:0, friends:[],
-      streakFreezes:1, dailyGoal:10, dailyDone:0, dailyDate:null };
+      streakFreezes:1, dailyGoal:10, dailyDone:0, dailyDate:null, weekXp:0, weekOf:'' };
   }
   // backfill fields for players created before this version
   function ensureFields(p){
@@ -4449,19 +4449,41 @@ window.QUESTION_BANK = {
     if(p.dailyGoal==null)p.dailyGoal=10;
     if(p.dailyDone==null)p.dailyDone=0;
     if(p.dailyDate==null)p.dailyDate=null;
+    if(p.weekXp==null)p.weekXp=0;
+    if(p.weekOf==null)p.weekOf='';
     return p;
   }
   function currentPlayer(){ const p=store.players.find(p=>p.id===store.lastActive)||null; return p?ensureFields(p):null; }
 
   /* ---------- LEADERBOARD HELPERS (real accounts only, never bots) ---------- */
-  const LB_MIN_PLAYERS = 10; // leaderboard stays hidden until this many real accounts have played
+  const LB_MIN_PLAYERS = 10;
   function hasPlayed(p){ return (p.xp||0) > 0 || (p.totalAnswered||0) > 0; }
   function playedAccounts(){ return store.players.map(ensureFields).filter(hasPlayed); }
-  function leaderboardUnlocked(){ return playedAccounts().length >= LB_MIN_PLAYERS; }
+  function leaderboardUnlocked(){ return cloudLbPlayers.length >= LB_MIN_PLAYERS || playedAccounts().length >= LB_MIN_PLAYERS; }
   function rankedAccounts(list){
-    // rank by total XP, descending; stable tiebreak by name
-    return list.slice().sort((a,b)=> (b.xp||0)-(a.xp||0) || a.name.localeCompare(b.name));
+    return list.slice().sort((a,b)=> (b.xp||0)-(a.xp||0) || (a.name||'').localeCompare(b.name||''));
   }
+  function rankedByWeekXp(list){
+    const w=currentWeek();
+    return list.slice().sort((a,b)=> {
+      const aw=(a.weekOf===w)?(a.weekXp||0):0;
+      const bw=(b.weekOf===w)?(b.weekXp||0):0;
+      return bw-aw || (a.name||'').localeCompare(b.name||'');
+    });
+  }
+  function currentWeek(){
+    const d=new Date(); const jan1=new Date(d.getFullYear(),0,1);
+    const wk=Math.ceil(((d-jan1)/86400000+jan1.getDay()+1)/7);
+    return d.getFullYear()+'-W'+String(wk).padStart(2,'0');
+  }
+  function touchWeekXp(p, pts){
+    const w=currentWeek();
+    if(p.weekOf!==w){ p.weekOf=w; p.weekXp=0; }
+    p.weekXp+=pts;
+  }
+
+  // Cloud leaderboard cache (fetched when Ranks tab opens)
+  let cloudLbPlayers=[], cloudLbLoading=false, cloudLbLastFetch=0;
   function touchStudyDay(p){
     const t=todayStr(); if(p.lastStudied===t)return [];
     const gap=daysBetween(p.lastStudied,t);
@@ -5285,7 +5307,7 @@ window.QUESTION_BANK = {
       if(activeTab==='practice')return renderPlay();
       if(activeTab==='mistakes')return renderMistakes();
       if(activeTab==='shop')return renderShop();
-      if(activeTab==='ranks')return leaderboardUnlocked()?renderRanks():renderPlay();
+      if(activeTab==='ranks'){ fetchCloudLeaderboard().then(()=>renderRanks()); return; }
       if(activeTab==='account')return renderAccount();
     }
   }
@@ -5661,7 +5683,7 @@ window.QUESTION_BANK = {
   }
   function tabBar(){
     const t=(id,icon,label)=>`<button class="tabbtn" data-tab="${id}" aria-pressed="${activeTab===id}"><span class="ti">${icon}</span>${label}</button>`;
-    const lb = leaderboardUnlocked() ? t('ranks','🏆','Ranks') : '';
+    const lb = t('ranks','🏆','Ranks');
     return `<div class="tabbar"><div class="inner">
       ${t('play','⚔️','Play')}${t('mistakes','🔁','Mistakes')}${lb}${t('shop','🛒','Shop')}${t('account','👤','Account')}
     </div></div>`;
@@ -6180,6 +6202,7 @@ window.QUESTION_BANK = {
     p.bestRace=Math.max(p.bestRace||0, race.me.score);
     // XP for the run
     p.xp += race.me.score*8;
+    touchWeekXp(p, race.me.score*8);
     // badges
     const nb=[];
     if(won)nb.push('first_win');
@@ -6340,46 +6363,71 @@ window.QUESTION_BANK = {
      SHOP TAB
      ========================================================= */
   /* ---------- LEADERBOARD (RANKS) TAB ---------- */
-  let ranksTab='everyone';
+  let ranksTab='week';
   function renderRanks(){
     const me=currentPlayer();
-    const seg=(id,label)=>`<button class="pill" data-rankstab="${id}" aria-pressed="${ranksTab===id}">${label}</button>`;
-    const everyone=rankedAccounts(playedAccounts());
+    const hasFriends = me.friends && me.friends.length > 0;
+    const hasEnough = cloudLbPlayers.length >= LB_MIN_PLAYERS;
 
-    let list;
+    // Build tab buttons (only show tabs that qualify)
+    const seg=(id,label)=>`<button class="pill" data-rankstab="${id}" aria-pressed="${ranksTab===id}">${label}</button>`;
+    let tabs = '';
+    if(hasFriends) tabs += seg('friends','Friends');
+    if(hasEnough) tabs += seg('week','This Week');
+    if(hasEnough) tabs += seg('alltime','All Time');
+    // fallback if nothing qualifies
+    if(!tabs) tabs = seg('alltime','All Time');
+
+    // ensure ranksTab is valid
+    if(ranksTab==='friends' && !hasFriends) ranksTab = hasEnough ? 'week' : 'alltime';
+    if(ranksTab==='week' && !hasEnough) ranksTab = hasFriends ? 'friends' : 'alltime';
+
+    // Build the player list from cloud data
+    const w = currentWeek();
+    let list, sortLabel;
     if(ranksTab==='friends'){
-      const fset=new Set(me.friends||[]);
-      // friends you picked who have played, plus always include yourself for context
-      list=rankedAccounts(everyone.filter(p=>fset.has(p.id)||p.id===me.id));
+      const fset = new Set(me.friends||[]);
+      list = rankedAccounts(cloudLbPlayers.filter(p=>fset.has(p.id)||p.id===me.cloudId));
+      sortLabel = 'Total XP';
+    } else if(ranksTab==='week'){
+      list = rankedByWeekXp(cloudLbPlayers.filter(p=>(p.weekOf===w && p.weekXp>0)));
+      sortLabel = 'XP this week';
     } else {
-      list=everyone;
+      list = rankedAccounts(cloudLbPlayers);
+      sortLabel = 'Total XP';
     }
 
-    const rows=list.map((p,i)=>{
-      const isMe=p.id===me.id;
-      const place=i+1;
-      const medal=place===1?'🥇':place===2?'🥈':place===3?'🥉':`<span class="rk">${place}</span>`;
-      const isFriend=(me.friends||[]).includes(p.id);
+    const rows = list.map((p,i)=>{
+      const isMe = p.id===(me.cloudId||me.id);
+      const place = i+1;
+      const medal = place===1?'🥇':place===2?'🥈':place===3?'🥉':`<span class="rk">${place}</span>`;
+      const isFriend = (me.friends||[]).includes(p.id);
       const friendBtn = isMe ? '' : `<button class="frbtn ${isFriend?'on':''}" data-friend="${p.id}">${isFriend?'★':'☆'}</button>`;
-      const {cur}=rankFor(p.xp);
+      const {cur} = rankFor(p.xp||0);
+      const xpVal = (ranksTab==='week') ? (p.weekOf===w ? p.weekXp||0 : 0) : (p.xp||0);
       return `<div class="lbrow ${isMe?'me':''} ${place<=3?'top':''}">
         <div class="lbplace">${medal}</div>
-        <div class="lbav">${p.avatar}</div>
-        <div class="lbinfo"><div class="lbn">${p.name}${isMe?' <span class="youtag">you</span>':''}</div><div class="lbsub">Lv ${cur.lvl} · ${cur.title}</div></div>
-        <div class="lbxp">${p.xp.toLocaleString()}<span class="lbxpk">XP</span></div>
+        <div class="lbav">${p.avatar||'🧑'}</div>
+        <div class="lbinfo"><div class="lbn">${p.name||'Player'}${isMe?' <span class="youtag">you</span>':''}</div><div class="lbsub">Lv ${cur.lvl} · ${cur.title}</div></div>
+        <div class="lbxp">${xpVal.toLocaleString()}<span class="lbxpk">XP</span></div>
         ${friendBtn}
       </div>`;
     }).join('');
 
-    const emptyFriends = ranksTab==='friends' && list.filter(p=>p.id!==me.id).length===0;
+    const isEmpty = list.length===0;
+    let emptyMsg = '';
+    if(isEmpty && ranksTab==='friends') emptyMsg = 'Add friends from the Account tab to see them here.';
+    else if(isEmpty && ranksTab==='week') emptyMsg = 'Nobody has earned XP this week yet. Be the first!';
+    else if(isEmpty) emptyMsg = 'No players yet. Start studying to get on the board!';
+    if(!hasEnough && ranksTab!=='friends') emptyMsg = 'The leaderboard unlocks when '+LB_MIN_PLAYERS+' players have joined. Share the app to get there! ('+cloudLbPlayers.length+'/'+LB_MIN_PLAYERS+' so far)';
 
     app.innerHTML=`<div class="wrap">
       <div class="eyebrow">Leaderboard</div>
-      <div class="row" style="margin-top:6px;"><h1 style="font-size:26px;">The <span class="b">Ranks</span></h1><span class="coinpill">${everyone.length} players</span></div>
-      <p class="sub">Ranked by total XP. Real players only — no bots here. Tap a star to add someone to your Friends board.</p>
-      <div class="modes" style="margin-top:14px;">${seg('everyone','Everyone')}${seg('friends','Friends ★')}</div>
-      ${emptyFriends
-        ? `<div class="lbempty">You haven't starred any friends yet.<br>Go to <b>Everyone</b> and tap ☆ next to a player to add them here.</div>`
+      <div class="row" style="margin-top:6px;"><h1 style="font-size:26px;">The <span class="b">Ranks</span></h1><span class="coinpill">${cloudLbPlayers.length} player${cloudLbPlayers.length===1?'':'s'}</span></div>
+      <p class="sub">Ranked by ${sortLabel}. Real players only. ${cloudLbLoading?'Loading...':''}</p>
+      <div class="modes" style="margin-top:14px;">${tabs}</div>
+      ${emptyMsg
+        ? `<div class="lbempty">${emptyMsg}</div>`
         : `<div class="lbboard">${rows}</div>`}
     </div>${tabBar()}`;
 
@@ -6391,6 +6439,26 @@ window.QUESTION_BANK = {
       me.friends=f; persist(); renderRanks();
     });
     wireTabs();
+  }
+
+  // Fetch cloud leaderboard data (cached for 30s)
+  async function fetchCloudLeaderboard(){
+    if(!CLOUD_ON) return;
+    if(Date.now()-cloudLbLastFetch < 30000 && cloudLbPlayers.length>0) return;
+    cloudLbLoading=true;
+    try{
+      const rows = await Cloud.getAllProfiles();
+      cloudLbPlayers = rows.filter(r=>r.data && (r.data.xp>0 || r.data.totalAnswered>0)).map(r=>({
+        id: r.id,
+        name: r.data.name||'Player',
+        avatar: r.data.avatar||'🧑',
+        xp: r.data.xp||0,
+        weekXp: r.data.weekXp||0,
+        weekOf: r.data.weekOf||'',
+      }));
+      cloudLbLastFetch=Date.now();
+    }catch(e){ console.warn('leaderboard fetch failed', e); }
+    cloudLbLoading=false;
   }
 
   let shopTab='powerups';
@@ -6497,7 +6565,7 @@ window.QUESTION_BANK = {
     q.answered=false;q.lastRight=null;q.typed='';q.levelUpTo=null;q.attemptsThisQ=0;
     render(); const inp=app.querySelector('#ansin'); if(inp)inp.focus();
   }
-  function applyXP(p,pts){ const before=rankFor(p.xp).cur.lvl; p.xp+=pts; const after=rankFor(p.xp).cur; if(after.lvl>before)q.levelUpTo=after; }
+  function applyXP(p,pts){ const before=rankFor(p.xp).cur.lvl; p.xp+=pts; touchWeekXp(p,pts); const after=rankFor(p.xp).cur; if(after.lvl>before)q.levelUpTo=after; }
   function recordResult(right,pts,early){
     const p=currentPlayer(); const qq=q.deck[q.idx];
     q.answered=true;q.lastRight=right;q.lastPts=pts;q.lastEarly=early;
