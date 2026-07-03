@@ -4739,6 +4739,9 @@ window.QUESTION_BANK = {
     #iac-root .lobby-spinner{display:inline-block;width:20px;height:20px;border:3px solid var(--line);border-top-color:var(--buzz);border-radius:50%;animation:spin 1s linear infinite;margin-right:8px;vertical-align:middle;}
     @keyframes spin{to{transform:rotate(360deg);}}
     #iac-root .lobby-invite-section{margin:12px 0;padding:12px;background:var(--paper-2);border-radius:12px;}
+    .popup-player-section{margin:10px 0;text-align:left;}
+    .popup-player-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid rgba(0,0,0,.06);}
+    .popup-player-row:last-child{border-bottom:none;}
     #iac-root .vote-bar{display:flex;gap:8px;margin-top:8px;justify-content:center;}
     #iac-root .setting-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
     #iac-root .standings-mini{display:flex;flex-wrap:wrap;gap:6px;padding:8px;}
@@ -5917,6 +5920,7 @@ window.QUESTION_BANK = {
     const emptyCards = Array.from({length:Math.min(emptySlots,3)},()=>`<div class="lobby-player empty"><div class="lobby-av">?</div><div class="lobby-name">Waiting...</div></div>`).join('');
 
     const onlineFriends = getOnlineList().filter(u=>u.user_id!==p.cloudId && (p.friends||[]).includes(u.user_id) && !lobby.players.find(lp=>lp.id===u.user_id));
+    const onlineOthers = getOnlineList().filter(u=>u.user_id!==p.cloudId && !(p.friends||[]).includes(u.user_id) && !lobby.players.find(lp=>lp.id===u.user_id));
 
     app.innerHTML=`<div class="wrap">
       <div class="topnav"><button class="back" id="lobbyBack">← Leave</button><div class="crumb">Game Lobby</div></div>
@@ -5927,8 +5931,12 @@ window.QUESTION_BANK = {
       </div>
       <div class="lobby-grid">${playerCards}${botCards}${emptyCards}</div>
       ${onlineFriends.length?`<div class="lobby-invite-section">
-        <div class="friend-label">Invite online friends</div>
-        ${onlineFriends.map(f=>`<div class="friend-row"><span class="friend-av">${f.avatar||'🧑'}</span><div class="friend-name">${f.name}</div><button class="btn buzz sm" data-lobby-invite="${f.user_id}" data-lobby-invite-name="${f.name}">Invite</button></div>`).join('')}
+        <div class="friend-label">Invite friends</div>
+        ${onlineFriends.map(f=>`<div class="friend-row"><span class="friend-av">${f.avatar||'🧑'}</span><div class="friend-name">${f.name} <span class="online-tag">online</span></div><button class="btn buzz sm" data-lobby-invite="${f.user_id}" data-lobby-invite-name="${f.name}">Invite</button></div>`).join('')}
+      </div>`:''}
+      ${onlineOthers.length?`<div class="lobby-invite-section">
+        <div class="friend-label">Other players online</div>
+        ${onlineOthers.map(f=>`<div class="friend-row"><span class="friend-av">${f.avatar||'🧑'}</span><div class="friend-name">${f.name} <span class="online-tag">online</span></div><button class="btn ghost sm" data-lobby-invite="${f.user_id}" data-lobby-invite-name="${f.name}">Invite</button></div>`).join('')}
       </div>`:''}
       ${lobby.isHost?`<div class="lobby-actions">
         <div class="lobby-settings card-base" style="margin-bottom:12px;padding:14px;">
@@ -6083,22 +6091,58 @@ window.QUESTION_BANK = {
     setTimeout(()=>{ if(document.getElementById('inviteOverlay')){ overlay.classList.remove('show'); setTimeout(()=>overlay.remove(),350); pendingInvite=null; } }, 30000);
   }
 
-  function showPlayModePopup(arena, onlineFriends){
+  function showPlayModePopup(arena, onlinePlayers){
     const arenaName = arena==='gauntlet'?'The Gauntlet':(BANK.sheets.find(s=>s.id===arena)||{}).name||arena;
+    const p = currentPlayer();
+    const friends = onlinePlayers.filter(u=>(p.friends||[]).includes(u.user_id));
+    const others = onlinePlayers.filter(u=>!(p.friends||[]).includes(u.user_id));
     const overlay = document.createElement('div');
     overlay.id = 'playModeOverlay';
-    overlay.innerHTML = `<div class="invite-card">
+
+    const playerList = (list, label) => {
+      if(!list.length) return '';
+      return `<div class="popup-player-section"><div class="friend-label">${label}</div>${list.map(u=>
+        `<div class="popup-player-row">
+          <span class="friend-av">${u.avatar||'🧑'}</span>
+          <span class="friend-name">${u.name} <span class="online-tag">online</span></span>
+          <button class="btn buzz sm" data-challenge="${u.user_id}" data-challenge-name="${u.name}">Challenge</button>
+        </div>`
+      ).join('')}</div>`;
+    };
+
+    overlay.innerHTML = `<div class="invite-card" style="max-width:420px;">
       <div style="font-size:28px;text-align:center;">⚔️</div>
       <div class="invite-title">${arenaName}</div>
-      <div class="invite-sub">${onlineFriends.length} friend${onlineFriends.length===1?'':'s'} online! Play together?</div>
-      <div class="invite-btns" style="flex-direction:column;">
-        <button class="invite-btn accept" id="playOnline">Play Online (with friends)</button>
-        <button class="invite-btn decline" id="playSolo">Play Solo (vs bots)</button>
+      <div class="invite-sub">${onlinePlayers.length} player${onlinePlayers.length===1?'':'s'} online</div>
+      ${playerList(friends, 'Friends')}
+      ${playerList(others, 'Other players')}
+      <div class="invite-btns" style="flex-direction:column;margin-top:12px;">
+        <button class="invite-btn accept" id="playOpen">Create open lobby</button>
+        <button class="invite-btn decline" id="playSolo">Play solo (vs bots)</button>
       </div>
     </div>`;
     rootEl.appendChild(overlay);
     requestAnimationFrame(()=>requestAnimationFrame(()=>overlay.classList.add('show')));
-    overlay.querySelector('#playOnline').onclick=()=>{
+
+    // Challenge a specific player: create lobby + send invite immediately
+    overlay.querySelectorAll('[data-challenge]').forEach(b=>b.onclick=()=>{
+      const targetId = b.dataset.challenge;
+      const targetName = b.dataset.challengeName;
+      overlay.classList.remove('show'); setTimeout(()=>overlay.remove(),300);
+      createLobby(arena);
+      // Send invite after a short delay so lobby channel is ready
+      setTimeout(()=>{
+        if(presenceChannel && lobby){
+          presenceChannel.send({
+            type:'broadcast', event:'game_invite',
+            payload:{ from:currentPlayer().cloudId, fromName:currentPlayer().name, fromAvatar:currentPlayer().avatar, to:targetId, toName:targetName, arena:arena, roomCode:lobby.code, timestamp:Date.now() }
+          });
+          toast('Challenge sent to '+targetName+'!');
+        }
+      }, 500);
+    });
+
+    overlay.querySelector('#playOpen').onclick=()=>{
       overlay.classList.remove('show'); setTimeout(()=>overlay.remove(),300);
       createLobby(arena);
     };
@@ -6637,9 +6681,9 @@ window.QUESTION_BANK = {
     </div>${tabBar()}`;
     app.querySelectorAll('[data-arena]').forEach(b=>b.onclick=()=>{
       const arena = b.dataset.arena;
-      const onlineFriends = CLOUD_ON ? getOnlineList().filter(u=>u.user_id!==(currentPlayer().cloudId) && (currentPlayer().friends||[]).includes(u.user_id)) : [];
-      if(onlineFriends.length > 0){
-        showPlayModePopup(arena, onlineFriends);
+      const onlineOthers = CLOUD_ON ? getOnlineList().filter(u=>u.user_id!==(currentPlayer().cloudId)) : [];
+      if(onlineOthers.length > 0){
+        showPlayModePopup(arena, onlineOthers);
       } else {
         startRace(arena);
       }
