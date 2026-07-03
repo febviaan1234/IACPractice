@@ -274,7 +274,7 @@ window.QUESTION_BANK = {
     {
      "answer": "Food Preservation",
      "alt": [],
-     "text": "Description acceptable. B. subtilis is used to test the efficacy of these processes, which include the phytosanitary irradiation of produce. Brucellosis is rare thanks to one of these methods, pasteurization, and the use of sodium benzoate for this purpose can greatly extend shelf-life. For the point, canning and refrigeration are modern techniques for this process that reduces spoilage of products like milk and vegetables."
+     "text": "B. subtilis is used to test the efficacy of these processes, which include the phytosanitary irradiation of produce. Brucellosis is rare thanks to one of these methods, pasteurization, and the use of sodium benzoate for this purpose can greatly extend shelf-life. For the point, canning and refrigeration are modern techniques for this process that reduces spoilage of products like milk and vegetables."
     },
     {
      "answer": "Fruits",
@@ -1674,7 +1674,7 @@ window.QUESTION_BANK = {
       "Tunneling",
       "Digging"
      ],
-     "text": "Description acceptable. Spreiten formations preserve evidence of this behavior which is performed by insects with fossorial legs. The only eusocial mammal lives in homes built by this activity, for which the wombat's backward-facing pouch is an adaptation. Ferrets specialize in hunting prey that hides by this behavior, such as prairie dogs. Badgers and moles engage in, for the point, what behavior of digging underground chambers?"
+     "text": "Spreiten formations preserve evidence of this behavior which is performed by insects with fossorial legs. The only eusocial mammal lives in homes built by this activity, for which the wombat's backward-facing pouch is an adaptation. Ferrets specialize in hunting prey that hides by this behavior, such as prairie dogs. Badgers and moles engage in, for the point, what behavior of digging underground chambers?"
     },
     {
      "answer": "Coral",
@@ -1864,7 +1864,7 @@ window.QUESTION_BANK = {
     {
      "answer": "Earth Core",
      "alt": [],
-     "text": "Inge Lehmann suggested that this region has a solid component. Convection occurring in one portion of this region is the proposed mechanism for dynamo theory. This region can be divided into its outer molten component and inner solid component. For the point, name this region that sits directly below the mantle in the center of the Earth. ANSWER: Earth\u2019s core (accept inner core; accept outer core)"
+     "text": "Inge Lehmann suggested that this region has a solid component. Convection occurring in one portion of this region is the proposed mechanism for dynamo theory. This region can be divided into its outer molten component and inner solid component. For the point, name this region that sits directly below the mantle in the center of the Earth."
     },
     {
      "answer": "Ellipse",
@@ -2156,7 +2156,7 @@ window.QUESTION_BANK = {
     {
      "answer": "Space Race",
      "alt": [],
-     "text": "Description acceptable. Animals involved in this contest included Ham, Enos, and Laika, and one competitor in this contest launched the Vostok program. Major achievements during this contest included the flight of Yuri Gagarin, the landing of Neil Armstrong and Buzz Aldrin on the Moon, and the creation of NASA. For the point, name this competition between two Cold War opponents to achieve superiority in exploring beyond Earth."
+     "text": "Animals involved in this contest included Ham, Enos, and Laika, and one competitor in this contest launched the Vostok program. Major achievements during this contest included the flight of Yuri Gagarin, the landing of Neil Armstrong and Buzz Aldrin on the Moon, and the creation of NASA. For the point, name this competition between two Cold War opponents to achieve superiority in exploring beyond Earth."
     },
     {
      "answer": "Space X",
@@ -3542,7 +3542,7 @@ window.QUESTION_BANK = {
       "Collapse Of Civilization",
       "Extinction Of Humanity"
      ],
-     "text": "Description acceptable. Because of this potential outcome, the Union of Concerned Scientists officially opposed solar geo-engineering in 2020. This event will mark the end of the Anthropocene epoch, and Stephen Hawking thought it the most likely outcome of an AI takeover. Scenarios for this event include a three degree climate shift, a nuclear winter, and a large asteroid impact. For the point, name this final catastrophe that some scientists now believe will start with a global pandemic."
+     "text": "Because of this potential outcome, the Union of Concerned Scientists officially opposed solar geo-engineering in 2020. This event will mark the end of the Anthropocene epoch, and Stephen Hawking thought it the most likely outcome of an AI takeover. Scenarios for this event include a three degree climate shift, a nuclear winter, and a large asteroid impact. For the point, name this final catastrophe that some scientists now believe will start with a global pandemic."
     },
     {
      "answer": "Even Number",
@@ -4541,7 +4541,16 @@ window.QUESTION_BANK = {
   /* =========================================================
      QUIZ PURE HELPERS
      ========================================================= */
-  function splitClues(text){ const p=text.match(/[^.!?]+[.!?]+(\s|$)/g)||[text]; return p.map(s=>s.trim()).filter(Boolean); }
+  function splitClues(text){
+    // Smart sentence split: protect abbreviations from being split
+    let t = text;
+    // Protect single-letter abbreviations (B. subtilis, E. coli, H. pylori, U.S., etc.)
+    t = t.replace(/\b([A-Z])\.(\s*)(?=[A-Za-z])/g, '$1\x00$2');
+    // Protect common abbreviations
+    t = t.replace(/\b(Dr|Mr|Mrs|Ms|St|vs|Jr|Sr|Mt|etc|vol|No|ca)\./gi, '$1\x00');
+    const p = t.match(/[^.!?]+[.!?]+(\s|$)/g) || [t];
+    return p.map(s=>s.replace(/\x00/g, '.').trim()).filter(s=>s.length>3);
+  }
   function normalize(s){
     return (s||'').toLowerCase()
       .replace(/\(.*?\)/g,' ')                                  // drop parenthetical alt names
